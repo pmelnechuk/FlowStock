@@ -2,7 +2,7 @@ import React, { useState, FormEvent } from 'react';
 // FIX: Changed react-router-dom import to fix module resolution error.
 import { useNavigate, Navigate, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
-import { AlertTriangleIcon, EyeIcon, EyeOffIcon } from '../components/icons';
+import { AlertTriangleIcon, EyeIcon, EyeOffIcon, ArrowLeftIcon } from '../components/icons';
 
 const Login: React.FC = () => {
   const [email, setEmail] = useState('');
@@ -31,7 +31,10 @@ const Login: React.FC = () => {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+    <div className="relative flex items-center justify-center min-h-screen bg-gray-100">
+      <Link to="/" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition-colors" aria-label="Volver al Dashboard" title="Volver al Dashboard">
+          <ArrowLeftIcon className="w-8 h-8" />
+      </Link>
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">
           Bienvenido a <span className="text-primary-600">Konstruya</span>
@@ -50,7 +53,7 @@ const Login: React.FC = () => {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="tu@email.com"
+              placeholder=""
               autoComplete="email"
               required
               className="w-full px-3 py-2 mt-1 text-gray-900 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
@@ -108,7 +111,7 @@ const Login: React.FC = () => {
           </div>
         </form>
 
-        <div className="text-sm text-center">
+        <div className="text-sm text-center pt-2">
             <p className="text-gray-600">
                 ¿No tienes una cuenta?{' '}
                 <Link to="/register" className="font-medium text-primary-600 hover:underline">
@@ -116,7 +119,6 @@ const Login: React.FC = () => {
                 </Link>
             </p>
         </div>
-
       </div>
     </div>
   );

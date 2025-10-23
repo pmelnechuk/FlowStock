@@ -1,8 +1,8 @@
 import React, { useState, FormEvent, useEffect } from 'react';
 // FIX: Changed react-router-dom import to fix module resolution error.
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
-import { EyeIcon, EyeOffIcon } from '../components/icons';
+import { EyeIcon, EyeOffIcon, ArrowLeftIcon } from '../components/icons';
 
 const ResetPassword = () => {
   const [password, setPassword] = useState('');
@@ -60,7 +60,10 @@ const ResetPassword = () => {
 
   if (!isValidSession) {
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gray-100">
+        <div className="relative flex items-center justify-center min-h-screen bg-gray-100">
+            <Link to="/" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition-colors" aria-label="Volver al Dashboard" title="Volver al Dashboard">
+                <ArrowLeftIcon className="w-8 h-8" />
+            </Link>
             <div className="w-full max-w-md p-8 text-center bg-white rounded-lg shadow-md">
                 <h2 className="text-xl font-bold text-gray-900">Verificando enlace...</h2>
                 <p className="mt-2 text-gray-600">
@@ -72,7 +75,10 @@ const ResetPassword = () => {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+    <div className="relative flex items-center justify-center min-h-screen bg-gray-100">
+      <Link to="/" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition-colors" aria-label="Volver al Dashboard" title="Volver al Dashboard">
+        <ArrowLeftIcon className="w-8 h-8" />
+      </Link>
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">Establecer Nueva Contraseña</h2>
         

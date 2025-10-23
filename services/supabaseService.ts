@@ -1,4 +1,3 @@
-
 import { supabase } from '../lib/supabaseClient';
 import { Item, NewMovement, Role, User } from '../types';
 
@@ -71,23 +70,24 @@ export const supabaseService = {
     },
 
     async getMovements() {
+      // The join on `usuarios` is problematic because the FK from `movimientos` is to `auth.users`, not `public.usuarios`.
+      // Supabase cannot automatically infer this join. We will fetch users separately and join on the client.
       return supabase
         .from('movimientos')
-        .select('*, item:items(*), user:usuarios(*)')
+        .select('*, item:items(*)') // Fetches movements and their related item.
         .order('fecha', { ascending: false })
         .limit(100);
     },
 
     async addMovement(movement: NewMovement, userId: string) {
-        // This logic should be handled by a database function (RPC) to ensure
-        // data consistency (e.g., check stock before withdrawal) and avoid race conditions.
-        // We assume an RPC function `registrar_movimiento` exists.
-        const { error } = await supabase.rpc('registrar_movimiento', {
-            p_item_id: movement.item_id,
-            p_tipo_movimiento: movement.tipo,
-            p_cantidad: movement.cantidad,
-            p_usuario_id: userId,
-            p_observacion: movement.observacion
+        // The database trigger `on_movement_created` will automatically handle
+        // stock updates and validation after a new movement is inserted.
+        const { error } = await supabase.from('movimientos').insert({
+            item_id: movement.item_id,
+            tipo: movement.tipo,
+            cantidad: movement.cantidad,
+            usuario_id: userId,
+            observacion: movement.observacion
         });
         return { error: error ? error.message : null };
     },

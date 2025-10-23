@@ -3,7 +3,7 @@ import React, { useState, FormEvent } from 'react';
 import { useNavigate, Link, Navigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { supabaseService } from '../services/supabaseService';
-import { EyeIcon, EyeOffIcon } from '../components/icons';
+import { EyeIcon, EyeOffIcon, ArrowLeftIcon } from '../components/icons';
 
 const Register: React.FC = () => {
   const [nombre, setNombre] = useState('');
@@ -58,7 +58,10 @@ const Register: React.FC = () => {
   }
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-100">
+    <div className="relative flex items-center justify-center min-h-screen bg-gray-100">
+      <Link to="/" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition-colors" aria-label="Volver al Dashboard" title="Volver al Dashboard">
+          <ArrowLeftIcon className="w-8 h-8" />
+      </Link>
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">
           Crear cuenta en <span className="text-primary-600">Konstruya</span>
@@ -168,7 +171,7 @@ const Register: React.FC = () => {
           </div>
         </form>
 
-        <div className="text-sm text-center">
+        <div className="text-sm text-center pt-2">
             <p className="text-gray-600">
                 ¿Ya tienes una cuenta?{' '}
                 <Link to="/login" className="font-medium text-primary-600 hover:underline">

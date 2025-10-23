@@ -58,7 +58,7 @@ const SupabaseSetup: React.FC = () => {
 const AppRoutes: React.FC = () => {
     const { loading } = useAuth();
     if (loading) {
-        return <div className="flex justify-center items-center h-screen">Cargando...</div>
+        return <div className="flex justify-center items-center h-screen text-gray-500">Cargando...</div>
     }
 
     return (

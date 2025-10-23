@@ -17,29 +17,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        if (session?.user?.email) {
-          // If there's a session, fetch our custom user profile
-          const { data: profile, error } = await supabase
-            .from('usuarios')
-            .select('*')
-            .eq('id', session.user.id)
-            .single();
+        try {
+          if (session?.user?.email) {
+            // If there's a session, fetch our custom user profile
+            const { data: profile, error } = await supabase
+              .from('usuarios')
+              .select('*')
+              .eq('id', session.user.id)
+              .single();
 
-          if (profile && profile.activo) {
-            // Merge profile data with email from auth user
-            const fullUser: User = { ...profile, email: session.user.email };
-            setUser(fullUser);
+            if (error && error.code !== 'PGRST116') {
+              console.error("Error fetching user profile:", error);
+            }
+
+            if (profile && profile.activo) {
+              // Merge profile data with email from auth user
+              const fullUser: User = { ...profile, email: session.user.email };
+              setUser(fullUser);
+            } else {
+              // Profile not found, inactive, or fetch failed, so force logout
+              await supabase.auth.signOut();
+              setUser(null);
+            }
           } else {
-            // Profile not found or inactive, force logout
-            await supabase.auth.signOut();
             setUser(null);
           }
-        } else {
+        } catch (e) {
+          console.error("Critical error in onAuthStateChange:", e);
+          // In case of a critical error, ensure user is logged out.
           setUser(null);
+        } finally {
+          setLoading(false);
         }
-        setLoading(false);
       }
     );
 
