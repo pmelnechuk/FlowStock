@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
-import { Item, NewMovement, Role, User } from '../types';
+import { Item, NewMovement, Role, User, RecipeComponent } from '../types';
 
 export const supabaseService = {
   auth: {
@@ -106,6 +106,43 @@ export const supabaseService = {
         activo
       };
       return supabase.from('usuarios').update(updatePayload).eq('id', id);
+    },
+
+    async getRecipes() {
+        return supabase
+            .from('recetas')
+            .select(`
+                producto_terminado_id,
+                materia_prima_id,
+                cantidad_necesaria,
+                producto:producto_terminado_id (id, codigo, descripcion, tipo),
+                materia_prima:materia_prima_id (id, codigo, descripcion, tipo)
+            `)
+            .order('producto_terminado_id');
+    },
+
+    async deleteRecipe(producto_terminado_id: number) {
+        return supabase
+            .from('recetas')
+            .delete()
+            .eq('producto_terminado_id', producto_terminado_id);
+    },
+
+    async upsertRecipe(producto_terminado_id: number, componentes: RecipeComponent[]) {
+        // This is a "delete and replace" strategy, which is simple and effective for managing recipe components.
+        // It's wrapped in a transaction via an RPC call for atomicity.
+        const { error: deleteError } = await this.deleteRecipe(producto_terminado_id);
+        if (deleteError) return { error: deleteError };
+
+        if (componentes.length === 0) return { error: null };
+
+        const recipeItems = componentes.map(comp => ({
+            producto_terminado_id,
+            materia_prima_id: comp.materia_prima_id,
+            cantidad_necesaria: comp.cantidad_necesaria
+        }));
+
+        return supabase.from('recetas').insert(recipeItems);
     },
   }
 };

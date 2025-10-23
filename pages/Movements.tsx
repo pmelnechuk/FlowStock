@@ -1,318 +1,364 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
-import { Item, Movement, MovementType, NewMovement, User } from '../types';
+import { Item, Movement, MovementType, User, NewMovement, Recipe, ItemType } from '../types';
 import { useAuth } from '../hooks/useAuth';
 
-const Movements: React.FC = () => {
-    const { user: currentUser } = useAuth();
-    const [items, setItems] = useState<Item[]>([]);
-    const [allUsers, setAllUsers] = useState<User[]>([]);
-    const [movements, setMovements] = useState<(Movement & { item: Item; user?: User })[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [isSubmitting, setIsSubmitting] = useState(false);
-    const [formState, setFormState] = useState<Partial<NewMovement>>({ tipo: MovementType.ENT, cantidad: 1 });
-    const [formError, setFormError] = useState('');
-    const [success, setSuccess] = useState('');
-    const [fetchError, setFetchError] = useState<string | null>(null);
-    const [isFormOpen, setIsFormOpen] = useState(false);
-    const [isFilterOpen, setIsFilterOpen] = useState(false);
-    const [filters, setFilters] = useState({
-        codigo: '',
-        tipo: '',
-        usuarioId: '',
-        fechaDesde: '',
-        fechaHasta: '',
-    });
+type ConceptualMovementType = 'PRODUCCION_PT' | 'ENTRADA_MP' | 'SALIDA_PT' | 'AJUSTE';
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        setFetchError(null);
-        try {
-            const [itemsRes, movementsRes, usersRes] = await Promise.all([
-                supabaseService.data.getItems(),
-                supabaseService.data.getMovements(),
-                supabaseService.data.getUsers(),
-            ]);
+const Toast: React.FC<{ message: string; type: 'error' | 'success'; onClose: () => void }> = ({ message, type, onClose }) => {
+    const bgColor = type === 'error' ? 'bg-red-500' : 'bg-green-500';
+    return (
+        <div className={`fixed top-20 right-6 w-full max-w-sm p-4 text-white rounded-lg shadow-lg flex justify-between items-start z-[100] animate-fade-in ${bgColor}`}>
+            <div className="flex-1">
+                <p className="font-bold">{type === 'error' ? 'Error de Validación' : 'Éxito'}</p>
+                <p className="text-sm whitespace-pre-wrap mt-1">{message}</p>
+            </div>
+            <button onClick={onClose} className="ml-4 text-xl font-bold leading-none">&times;</button>
+        </div>
+    );
+};
 
-            if (itemsRes.error || movementsRes.error || usersRes.error) {
-                throw new Error(itemsRes.error?.message || movementsRes.error?.message || usersRes.error?.message || 'Error al cargar los datos.');
-            }
-            
-            if (usersRes.data) setAllUsers(usersRes.data);
-            const usersMap = new Map(usersRes.data?.map((u: User) => [u.id, u]) || []);
 
-            const enrichedMovements = movementsRes.data?.map((m: Movement & { item: Item }) => ({
-                ...m,
-                user: usersMap.get(m.usuario_id),
-            })) || [];
-
-            if (itemsRes.data) setItems(itemsRes.data);
-            setMovements(enrichedMovements);
-
-        } catch (e: any) {
-            setFetchError(e.message);
-        } finally {
-            setLoading(false);
-        }
-    }, []);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    const filteredMovements = useMemo(() => {
-        return movements.filter(m => {
-            if (filters.codigo && !m.item?.codigo.toLowerCase().includes(filters.codigo.toLowerCase())) return false;
-            if (filters.tipo && m.tipo !== filters.tipo) return false;
-            if (filters.usuarioId && m.usuario_id !== filters.usuarioId) return false;
-            
-            const movementDate = new Date(m.fecha).getTime();
-            if (filters.fechaDesde) {
-                const fechaDesde = new Date(filters.fechaDesde).getTime();
-                if (movementDate < fechaDesde) return false;
-            }
-            if (filters.fechaHasta) {
-                // Add one day to include the end date
-                const fechaHasta = new Date(filters.fechaHasta).getTime() + (24 * 60 * 60 * 1000);
-                if (movementDate > fechaHasta) return false;
-            }
-            
-            return true;
-        });
-    }, [movements, filters]);
-
-    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-        const { name, value } = e.target;
-        setFilters(prev => ({ ...prev, [name]: value }));
-    };
-
-    const clearFilters = () => {
-        setFilters({ codigo: '', tipo: '', usuarioId: '', fechaDesde: '', fechaHasta: '' });
-    };
-
-    const handleOpenForm = () => {
-        setFormError('');
-        setSuccess('');
-        setFormState({ tipo: MovementType.ENT, cantidad: 1 });
-        setIsFormOpen(true);
-    };
+const MovementForm: React.FC<{
+    items: Item[];
+    recipes: Recipe[];
+    onSave: (movementData: {
+        conceptualType: ConceptualMovementType,
+        item_id: number;
+        cantidad: number;
+        observacion?: string;
+    }) => Promise<boolean>; // Returns true on success
+    onCancel: () => void;
+}> = ({ items, recipes, onSave, onCancel }) => {
     
-    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-        const { name, value } = e.target;
-        setFormState(prev => ({...prev, [name]: name === 'cantidad' || name === 'item_id' ? Number(value) : value }));
-    };
+    const [conceptualType, setConceptualType] = useState<ConceptualMovementType>('PRODUCCION_PT');
+    const [itemId, setItemId] = useState<string>('');
+    const [cantidad, setCantidad] = useState<string>('1');
+    const [observacion, setObservacion] = useState('');
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
+    const productOptions = useMemo(() => {
+        switch (conceptualType) {
+            case 'ENTRADA_MP':
+                return items.filter(i => i.tipo === ItemType.MP);
+            case 'PRODUCCION_PT':
+            case 'SALIDA_PT':
+                return items.filter(i => i.tipo === ItemType.PT);
+            case 'AJUSTE':
+                return items;
+            default:
+                return [];
+        }
+    }, [conceptualType, items]);
+
+    // Reset item selection when movement type changes
+    useEffect(() => {
+        setItemId('');
+    }, [conceptualType]);
+    
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setFormError('');
-        setSuccess('');
+        setError(null);
+        
+        const numCantidad = parseInt(cantidad, 10);
 
-        if (!formState.item_id || !formState.tipo || formState.cantidad === undefined) {
-            setFormError('Por favor complete todos los campos requeridos.');
+        if (!itemId || !conceptualType || !cantidad || isNaN(numCantidad) || numCantidad <= 0) {
+            setError("Por favor, complete todos los campos requeridos con valores válidos.");
             return;
         }
 
-        const cantidad = Number(formState.cantidad);
+        setSubmitting(true);
+        const success = await onSave({
+            conceptualType,
+            item_id: Number(itemId),
+            cantidad: numCantidad,
+            observacion
+        });
+        setSubmitting(false);
 
-        if (cantidad === 0) {
-            setFormError('La cantidad no puede ser cero.');
-            return;
+        if (success) {
+            onCancel(); // Close form on success
         }
-
-        if ((formState.tipo === MovementType.ENT || formState.tipo === MovementType.SAL) && cantidad <= 0) {
-            setFormError('Para Entradas y Salidas, la cantidad debe ser un número positivo.');
-            return;
-        }
-        
-        setIsSubmitting(true);
-
-        const movementData: NewMovement = {
-            item_id: formState.item_id,
-            tipo: formState.tipo,
-            cantidad: cantidad,
-            observacion: formState.observacion,
-        };
-        
-        const { error: submitError } = await supabaseService.data.addMovement(movementData, currentUser!.id);
-        
-        if (submitError) {
-            if (submitError.includes('Stock insuficiente')) {
-                setFormError('Error: Stock insuficiente para realizar esta operación.');
-            } else {
-                setFormError(`Error al registrar: ${submitError}`);
-            }
-        } else {
-            setSuccess('Movimiento registrado con éxito.');
-            fetchData(); // Refresh data
-            setTimeout(() => {
-                setIsFormOpen(false);
-            }, 500); // Close modal after a short delay
-        }
-        setIsSubmitting(false);
-    };
-
-    const MovementTypeLabels: Record<MovementType, string> = {
-        [MovementType.ENT]: 'Entrada',
-        [MovementType.SAL]: 'Salida',
-        [MovementType.AJU]: 'Ajuste',
-    };
-    
-    const MovementTypeColors: Record<MovementType, string> = {
-        [MovementType.ENT]: 'bg-primary-100 text-primary-800',
-        [MovementType.SAL]: 'bg-primary-100 text-primary-800',
-        [MovementType.AJU]: 'bg-primary-100 text-primary-800',
     };
 
     const inputStyle = "w-full mt-1 block px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500";
-    const filterInputStyle = "w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm";
-    const filterLabelStyle = "block text-sm font-medium text-gray-700 mb-1";
 
     return (
-        <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h1 className="text-2xl font-bold">Movimientos</h1>
-                <div className="flex items-center space-x-2">
-                     <button 
-                        onClick={() => setIsFilterOpen(prev => !prev)}
-                        className="px-4 py-2 text-sm font-medium bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
-                    >
-                        {isFilterOpen ? 'Ocultar Filtros' : 'Mostrar Filtros'}
-                    </button>
-                    <button onClick={handleOpenForm} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
-                        + Registrar Movimiento
-                    </button>
-                </div>
+        <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
+            <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
+                <h2 className="text-xl font-bold mb-4">Nuevo Movimiento de Inventario</h2>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div>
+                        <label htmlFor="conceptualType" className="block text-sm font-medium">Tipo de Movimiento</label>
+                        <select
+                            id="conceptualType"
+                            value={conceptualType}
+                            onChange={(e) => setConceptualType(e.target.value as ConceptualMovementType)}
+                            required
+                            className={inputStyle}
+                        >
+                            <option value="PRODUCCION_PT">Producción de Producto Terminado</option>
+                            <option value="ENTRADA_MP">Entrada de Materia Prima</option>
+                            <option value="SALIDA_PT">Salida de Producto Terminado</option>
+                            <option value="AJUSTE">Ajuste</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label htmlFor="item_id" className="block text-sm font-medium">Producto</label>
+                        <select name="item_id" id="item_id" value={itemId} onChange={(e) => setItemId(e.target.value)} required className={inputStyle} disabled={productOptions.length === 0}>
+                            <option value="">{productOptions.length > 0 ? 'Seleccione un producto' : 'No hay productos para este tipo'}</option>
+                            {productOptions.map(item => (
+                                <option key={item.id} value={item.id}>{item.codigo} - {item.descripcion}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label htmlFor="cantidad" className="block text-sm font-medium">Cantidad</label>
+                        <input
+                            type="number"
+                            name="cantidad"
+                            id="cantidad"
+                            value={cantidad}
+                            onChange={(e) => setCantidad(e.target.value)}
+                            min="1"
+                            step="1"
+                            onKeyDown={(e) => {
+                                // Prevent decimal points, 'e', and other non-integer keys
+                                if (['.', ',', 'e', 'E', '+', '-'].includes(e.key)) {
+                                    e.preventDefault();
+                                }
+                            }}
+                            required
+                            className={inputStyle}
+                        />
+                    </div>
+                    
+                    <div>
+                        <label htmlFor="observacion" className="block text-sm font-medium">Observación (Opcional)</label>
+                        <textarea name="observacion" id="observacion" value={observacion} onChange={(e) => setObservacion(e.target.value)} rows={2} className={inputStyle}></textarea>
+                    </div>
+
+                    {error && <p className="text-sm text-red-600">{error}</p>}
+                    
+                    <div className="flex justify-end space-x-2 pt-4">
+                        <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
+                        <button type="submit" disabled={submitting} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:bg-primary-400">
+                            {submitting ? 'Registrando...' : 'Registrar Movimiento'}
+                        </button>
+                    </div>
+                </form>
             </div>
+        </div>
+    );
+};
 
-            {isFormOpen && (
-                <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
-                    <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
-                        <h2 className="text-xl font-bold mb-4">Registrar Movimiento</h2>
-                        <form onSubmit={handleSubmit} className="space-y-4">
-                            <div>
-                                <label htmlFor="item_id" className="block text-sm font-medium">Producto</label>
-                                <select name="item_id" id="item_id" value={formState.item_id || ''} onChange={handleInputChange} required className={inputStyle}>
-                                    <option value="">Seleccione un producto</option>
-                                    {items.map(item => <option key={item.id} value={item.id}>{item.codigo} - {item.descripcion}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="tipo" className="block text-sm font-medium">Tipo de Movimiento</label>
-                                <select name="tipo" id="tipo" value={formState.tipo || ''} onChange={handleInputChange} required className={inputStyle}>
-                                    <option value={MovementType.ENT}>{MovementTypeLabels.ENT}</option>
-                                    <option value={MovementType.SAL}>{MovementTypeLabels.SAL}</option>
-                                    <option value={MovementType.AJU}>{MovementTypeLabels.AJU}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label htmlFor="cantidad" className="block text-sm font-medium">Cantidad</label>
-                                <input type="number" name="cantidad" id="cantidad" value={formState.cantidad || ''} onChange={handleInputChange} required className={inputStyle} />
-                                {formState.tipo === MovementType.AJU && <p className="text-xs text-gray-500 mt-1">Para ajustes, use un número negativo para restar stock.</p>}
-                            </div>
-                            <div>
-                                <label htmlFor="observacion" className="block text-sm font-medium">Observación (Opcional)</label>
-                                <textarea name="observacion" id="observacion" value={formState.observacion || ''} onChange={handleInputChange} rows={3} className={inputStyle} />
-                            </div>
-                            
-                            {formError && <p className="text-sm text-red-500">{formError}</p>}
-                            {success && <p className="text-sm text-green-500">{success}</p>}
 
-                            <div className="flex justify-end space-x-2 pt-4">
-                                <button type="button" onClick={() => setIsFormOpen(false)} className="px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
-                                <button type="submit" disabled={isSubmitting} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700 disabled:bg-primary-400">
-                                    {isSubmitting ? 'Registrando...' : 'Registrar'}
-                                </button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
-            
-            {isFilterOpen &&
-                <div className="bg-white p-4 rounded-lg shadow-md">
-                    <h3 className="text-lg font-semibold mb-4">Filtrar Movimientos</h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end">
-                        <div>
-                            <label htmlFor="codigo" className={filterLabelStyle}>Código</label>
-                            <input type="text" name="codigo" value={filters.codigo} onChange={handleFilterChange} className={filterInputStyle} placeholder="Buscar por código..." />
-                        </div>
-                        <div>
-                            <label htmlFor="tipo" className={filterLabelStyle}>Tipo</label>
-                            <select name="tipo" value={filters.tipo} onChange={handleFilterChange} className={filterInputStyle}>
-                                <option value="">Todos</option>
-                                <option value={MovementType.ENT}>{MovementTypeLabels.ENT}</option>
-                                <option value={MovementType.SAL}>{MovementTypeLabels.SAL}</option>
-                                <option value={MovementType.AJU}>{MovementTypeLabels.AJU}</option>
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="usuarioId" className={filterLabelStyle}>Usuario</label>
-                            <select name="usuarioId" value={filters.usuarioId} onChange={handleFilterChange} className={filterInputStyle}>
-                                <option value="">Todos</option>
-                                {allUsers.map(user => <option key={user.id} value={user.id}>{user.nombre}</option>)}
-                            </select>
-                        </div>
-                        <div>
-                            <label htmlFor="fechaDesde" className={filterLabelStyle}>Desde</label>
-                            <input type="date" name="fechaDesde" value={filters.fechaDesde} onChange={handleFilterChange} className={filterInputStyle} />
-                        </div>
-                        <div>
-                            <label htmlFor="fechaHasta" className={filterLabelStyle}>Hasta</label>
-                            <input type="date" name="fechaHasta" value={filters.fechaHasta} onChange={handleFilterChange} className={filterInputStyle} />
-                        </div>
-                    </div>
-                    <div className="flex justify-end mt-4">
-                        <button onClick={clearFilters} className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300">Limpiar Filtros</button>
-                    </div>
-                </div>
+const Movements: React.FC = () => {
+    const [movements, setMovements] = useState<(Movement & { item: Item })[]>([]);
+    const [items, setItems] = useState<Item[]>([]);
+    const [users, setUsers] = useState<User[]>([]);
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [isFormOpen, setIsFormOpen] = useState(false);
+    const { user: currentUser } = useAuth();
+    const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+    
+    const itemsMap = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
+    const recipesMap = useMemo(() => new Map(recipes.map(recipe => [recipe.producto_terminado_id, recipe])), [recipes]);
+
+    useEffect(() => {
+        if (toast) {
+            const timer = setTimeout(() => setToast(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [toast]);
+
+    const fetchAllData = useCallback(async () => {
+        setLoading(true);
+        const [movementsRes, itemsRes, usersRes, recipesRes] = await Promise.all([
+            supabaseService.data.getMovements(),
+            supabaseService.data.getItems(),
+            supabaseService.data.getUsers(),
+            supabaseService.data.getRecipes()
+        ]);
+        
+        if (movementsRes.data) setMovements(movementsRes.data as (Movement & { item: Item })[]);
+        if (itemsRes.data) setItems(itemsRes.data);
+        if (usersRes.data) setUsers(usersRes.data);
+        if (recipesRes.data) {
+            const groupedRecipes = new Map<number, Recipe>();
+            recipesRes.data.forEach(r => {
+                if (!groupedRecipes.has(r.producto_terminado_id)) {
+                    groupedRecipes.set(r.producto_terminado_id, {
+                        producto_terminado_id: r.producto_terminado_id,
+                        componentes: []
+                    });
+                }
+                groupedRecipes.get(r.producto_terminado_id)?.componentes.push({
+                    materia_prima_id: r.materia_prima_id,
+                    cantidad_necesaria: r.cantidad_necesaria
+                });
+            });
+            setRecipes(Array.from(groupedRecipes.values()));
+        }
+
+        setLoading(false);
+    }, []);
+
+    useEffect(() => {
+        fetchAllData();
+    }, [fetchAllData]);
+
+    const handleSave = async (data: { conceptualType: ConceptualMovementType; item_id: number; cantidad: number; observacion?: string }): Promise<boolean> => {
+        if (!currentUser) return false;
+
+        const { conceptualType, item_id, cantidad, observacion } = data;
+        const selectedItem = itemsMap.get(item_id);
+        if (!selectedItem) {
+            setToast({ message: "Error: Producto seleccionado no encontrado.", type: 'error' });
+            return false;
+        }
+
+        // --- VALIDATION LOGIC ---
+        if (conceptualType === 'SALIDA_PT') {
+            if (selectedItem.stock_actual < cantidad) {
+                setToast({ message: `Stock insuficiente para '${selectedItem.codigo}'.\nStock actual: ${selectedItem.stock_actual}, se intenta retirar: ${cantidad}.`, type: 'error' });
+                return false;
+            }
+        }
+
+        if (conceptualType === 'PRODUCCION_PT') {
+            const recipe = recipesMap.get(item_id);
+            if (!recipe) {
+                setToast({ message: `No existe una receta para el producto '${selectedItem.codigo}'.`, type: 'error' });
+                return false;
             }
 
-            <div className="bg-white p-6 rounded-lg shadow-md">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">Historial de Movimientos</h2>
-                </div>
-                <div className="overflow-x-auto">
-                    {loading ? (
-                        <p>Cargando movimientos...</p>
-                    ) : fetchError ? (
-                        <p className="text-red-500">Error al cargar movimientos: {fetchError}</p>
-                    ) : (
-                        <table className="w-full text-sm">
-                            <thead className="text-xs text-gray-700 uppercase bg-gray-50">
-                                <tr>
-                                    <th className="px-4 py-3">Fecha</th>
-                                    <th className="px-4 py-3">Código</th>
-                                    <th className="px-4 py-3">Producto</th>
-                                    <th className="px-4 py-3">Tipo</th>
-                                    <th className="px-4 py-3 text-right">Cantidad</th>
-                                    <th className="px-4 py-3">Usuario</th>
-                                    <th className="px-4 py-3">Observaciones</th>
+            const insufficientMaterials: string[] = [];
+            for (const component of recipe.componentes) {
+                const mpItem = itemsMap.get(component.materia_prima_id);
+                const requiredAmount = cantidad * component.cantidad_necesaria;
+                if (!mpItem || mpItem.stock_actual < requiredAmount) {
+                    const stock = mpItem ? mpItem.stock_actual : 0;
+                    const itemName = mpItem ? `${mpItem.codigo} - ${mpItem.descripcion}` : `ID: ${component.materia_prima_id}`;
+                    insufficientMaterials.push(`- '${itemName}': requiere ${requiredAmount}, tiene ${stock}`);
+                }
+            }
+
+            if (insufficientMaterials.length > 0) {
+                setToast({ message: `Materia prima insuficiente:\n${insufficientMaterials.join('\n')}`, type: 'error' });
+                return false;
+            }
+        }
+
+        // --- MAP CONCEPTUAL TYPE TO DB TYPE ---
+        let dbMovementType: MovementType;
+        switch (conceptualType) {
+            case 'PRODUCCION_PT':
+            case 'ENTRADA_MP':
+                dbMovementType = MovementType.ENT;
+                break;
+            case 'SALIDA_PT':
+                dbMovementType = MovementType.SAL;
+                break;
+            case 'AJUSTE':
+                dbMovementType = MovementType.AJU;
+                break;
+        }
+
+        const newMovement: NewMovement = {
+            item_id,
+            tipo: dbMovementType,
+            cantidad,
+            observacion
+        };
+
+        const result = await supabaseService.data.addMovement(newMovement, currentUser.id);
+        if (result.error) {
+            setToast({ message: `Error al registrar: ${result.error}`, type: 'error' });
+            return false;
+        } else {
+            setIsFormOpen(false);
+            fetchAllData();
+            return true;
+        }
+    };
+
+    const usersMap = useMemo(() => new Map(users.map(u => [u.id, u.nombre])), [users]);
+    
+    const getMovementBadge = (mov: Movement & { item: Item }): { text: string; className: string } => {
+        if (mov.tipo === MovementType.SAL && mov.observacion?.startsWith('Salida automática por producción')) {
+            return { text: 'Consumo MP', className: 'bg-yellow-100 text-yellow-800' };
+        }
+        switch (mov.tipo) {
+            case MovementType.ENT:
+                return mov.item.tipo === ItemType.PT
+                    ? { text: 'Producción PT', className: 'bg-purple-100 text-purple-800' }
+                    : { text: 'Entrada MP', className: 'bg-green-100 text-green-800' };
+            case MovementType.SAL:
+                return { text: 'Salida PT', className: 'bg-red-100 text-red-800' };
+            case MovementType.AJU:
+                return { text: 'Ajuste', className: 'bg-blue-100 text-blue-800' };
+            default:
+                return { text: mov.tipo, className: 'bg-gray-100 text-gray-800' };
+        }
+    };
+
+    if (loading) return <div>Cargando movimientos...</div>;
+
+    return (
+        <div className="space-y-4">
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+            
+            <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-bold">Registro de Movimientos</h1>
+                <button onClick={() => setIsFormOpen(true)} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                    + Nuevo Movimiento
+                </button>
+            </div>
+            
+            {isFormOpen && <MovementForm items={items} recipes={recipes} onSave={handleSave} onCancel={() => setIsFormOpen(false)} />}
+            
+            <div className="bg-white p-4 rounded-lg shadow-md overflow-x-auto">
+                <table className="w-full text-sm text-left text-gray-500">
+                    <thead className="text-xs text-gray-700 uppercase bg-gray-50">
+                        <tr>
+                            <th className="px-6 py-3">Fecha</th>
+                            <th className="px-6 py-3">Producto</th>
+                            <th className="px-6 py-3 text-center">Tipo de Operación</th>
+                            <th className="px-6 py-3 text-center">Cantidad</th>
+                            <th className="px-6 py-3">Usuario</th>
+                            <th className="px-6 py-3">Observación</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {movements.map(mov => {
+                            const badge = getMovementBadge(mov);
+                            return (
+                                <tr key={mov.id} className="bg-white border-b">
+                                    <td className="px-6 py-4">{new Date(mov.fecha).toLocaleString('es-ES')}</td>
+                                    <td className="px-6 py-4 font-medium text-gray-900">
+                                        <div className="font-bold">{mov.item.codigo}</div>
+                                        <div className="text-xs text-gray-500">{mov.item.descripcion}</div>
+                                    </td>
+                                    <td className="px-6 py-4 text-center">
+                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${badge.className}`}>
+                                            {badge.text}
+                                        </span>
+                                    </td>
+                                    <td className={`px-6 py-4 text-center font-bold ${mov.tipo === 'SAL' || mov.tipo === 'AJU' && mov.cantidad < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                        {mov.tipo === 'SAL' ? '-' : ''}{mov.cantidad}
+                                    </td>
+                                    <td className="px-6 py-4">{usersMap.get(mov.usuario_id) || 'Desconocido'}</td>
+                                    <td className="px-6 py-4 text-gray-600 italic">{mov.observacion}</td>
                                 </tr>
-                            </thead>
-                            <tbody>
-                                {filteredMovements.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={7} className="text-center py-4 text-gray-500">No se encontraron movimientos con los filtros aplicados.</td>
-                                    </tr>
-                                ) : (
-                                    filteredMovements.map(m => (
-                                        <tr key={m.id} className="border-b">
-                                            <td className="px-4 py-2 text-gray-900">{new Date(m.fecha).toLocaleString()}</td>
-                                            <td className="px-4 py-2 font-mono text-gray-900">{m.item?.codigo}</td>
-                                            <td className="px-4 py-2 font-medium text-gray-900">{m.item?.descripcion || 'Producto no encontrado'}</td>
-                                            <td className="px-4 py-2">
-                                                <span className={`px-2 py-1 text-xs font-medium rounded-full ${MovementTypeColors[m.tipo]}`}>{MovementTypeLabels[m.tipo]}</span>
-                                            </td>
-                                            <td className="px-4 py-2 text-right font-mono text-gray-900">{m.cantidad}</td>
-                                            <td className="px-4 py-2 text-gray-900">{m.user?.nombre || 'Usuario Desconocido'}</td>
-                                            <td className="px-4 py-2 text-gray-500 italic">{m.observacion || '-'}</td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    )}
-                </div>
+                            );
+                        })}
+                    </tbody>
+                </table>
             </div>
         </div>
     );

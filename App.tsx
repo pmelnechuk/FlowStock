@@ -13,6 +13,7 @@ import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Movements from './pages/Movements';
 import Users from './pages/Users';
+import Recipes from './pages/Recipes';
 import Welcome from './pages/Welcome';
 import { Role } from './types';
 import { isSupabaseConfigured } from './lib/supabaseClient';
@@ -118,6 +119,11 @@ const AppRoutes: React.FC = () => {
                 <Route path="productos" element={
                     <ProtectedRoute roles={[Role.ADMIN]}>
                         <Products />
+                    </ProtectedRoute>
+                } />
+                 <Route path="recetas" element={
+                    <ProtectedRoute roles={[Role.ADMIN, Role.OPERARIO, Role.SUPERVISOR]}>
+                        <Recipes />
                     </ProtectedRoute>
                 } />
                 <Route path="movimientos" element={

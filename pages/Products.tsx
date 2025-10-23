@@ -52,7 +52,7 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label htmlFor="stock_minimo" className="block text-sm font-medium">Stock Mínimo</label>
-                            <input type="number" name="stock_minimo" id="stock_minimo" value={formData.stock_minimo ?? ''} onChange={handleChange} min="0" required className={inputStyle} />
+                            <input type="number" name="stock_minimo" id="stock_minimo" value={formData.stock_minimo ?? ''} onChange={handleChange} min="0" step="0.0001" required className={inputStyle} />
                         </div>
                         <div>
                             <label htmlFor="valor" className="block text-sm font-medium">Valor Unitario</label>

@@ -3,7 +3,7 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { Role } from '../types';
-import { DashboardIcon, ProductsIcon, MovementsIcon, UsersIcon } from './icons';
+import { DashboardIcon, ProductsIcon, MovementsIcon, UsersIcon, RecipeBookIcon } from './icons';
 
 const Sidebar: React.FC = () => {
   const { user } = useAuth();
@@ -33,6 +33,11 @@ const Sidebar: React.FC = () => {
           </NavLink>
         )}
         
+        <NavLink to="/recetas" className={navLinkClasses}>
+            <RecipeBookIcon className="h-5 w-5 mr-3" />
+            Recetas
+        </NavLink>
+
         {(user?.rol === Role.ADMIN || user?.rol === Role.OPERARIO) && (
           <NavLink to="/movimientos" className={navLinkClasses}>
             <MovementsIcon className="h-5 w-5 mr-3" />

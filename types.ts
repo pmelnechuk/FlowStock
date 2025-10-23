@@ -47,3 +47,15 @@ export interface Movement {
 
 // For creating new movements, some fields are omitted
 export type NewMovement = Omit<Movement, 'id' | 'fecha' | 'usuario_id'>;
+
+export interface RecipeComponent {
+  id?: number;
+  materia_prima_id: number;
+  cantidad_necesaria: number;
+}
+
+export interface Recipe {
+  producto_terminado_id: number;
+  producto_terminado?: Item;
+  componentes: (RecipeComponent & { materia_prima?: Item })[];
+}
