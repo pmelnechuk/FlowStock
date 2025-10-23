@@ -59,7 +59,7 @@ const Register: React.FC = () => {
 
   return (
     <div className="relative flex items-center justify-center min-h-screen bg-gray-100">
-      <Link to="/" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition-colors" aria-label="Volver al Dashboard" title="Volver al Dashboard">
+      <Link to="/welcome" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition-colors" aria-label="Volver a la Bienvenida" title="Volver a la Bienvenida">
           <ArrowLeftIcon className="w-8 h-8" />
       </Link>
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">

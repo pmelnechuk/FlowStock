@@ -1,13 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { Item, ItemType } from '../types';
 
 const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<Item>) => void; onCancel: () => void }> = ({ item, onSave, onCancel }) => {
-    const [formData, setFormData] = useState(item || {});
+    const [formData, setFormData] = useState<Partial<Item>>(item || {});
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: name === 'stock_minimo' ? Number(value) : value }));
+        if (name === 'stock_minimo' || name === 'valor') {
+            // For number inputs, allow empty string to be displayed by storing undefined in state.
+            setFormData(prev => ({ ...prev, [name]: value === '' ? undefined : Number(value) }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+        }
     };
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -44,9 +49,15 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
                             <input type="text" name="unidad" id="unidad" value={formData.unidad || 'un'} onChange={handleChange} required className={inputStyle} />
                         </div>
                     </div>
-                    <div>
-                        <label htmlFor="stock_minimo" className="block text-sm font-medium">Stock Mínimo</label>
-                        <input type="number" name="stock_minimo" id="stock_minimo" value={formData.stock_minimo || 0} onChange={handleChange} min="0" required className={inputStyle} />
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label htmlFor="stock_minimo" className="block text-sm font-medium">Stock Mínimo</label>
+                            <input type="number" name="stock_minimo" id="stock_minimo" value={formData.stock_minimo ?? ''} onChange={handleChange} min="0" required className={inputStyle} />
+                        </div>
+                        <div>
+                            <label htmlFor="valor" className="block text-sm font-medium">Valor Unitario</label>
+                            <input type="number" name="valor" id="valor" value={formData.valor ?? ''} onChange={handleChange} min="0" step="0.01" required className={inputStyle} />
+                        </div>
                     </div>
                     <div className="flex justify-end space-x-2 pt-4">
                         <button type="button" onClick={onCancel} className="px-4 py-2 bg-gray-200 rounded-md">Cancelar</button>
@@ -62,6 +73,15 @@ const Products: React.FC = () => {
     const [items, setItems] = useState<Item[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingItem, setEditingItem] = useState<Partial<Item> | null>(null);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [filters, setFilters] = useState({
+        codigo: '',
+        tipo: '',
+        valorMin: '',
+        valorMax: '',
+        stockMin: '',
+        stockMax: '',
+    });
 
     const fetchItems = useCallback(async () => {
         setLoading(true);
@@ -90,6 +110,47 @@ const Products: React.FC = () => {
             fetchItems();
         }
     };
+    
+    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFilters(prev => ({ ...prev, [name]: value }));
+    };
+
+    const clearFilters = () => {
+        setFilters({
+            codigo: '',
+            tipo: '',
+            valorMin: '',
+            valorMax: '',
+            stockMin: '',
+            stockMax: '',
+        });
+    };
+
+    const filteredItems = useMemo(() => {
+        return items.filter(item => {
+            if (filters.codigo && !item.codigo.toLowerCase().includes(filters.codigo.toLowerCase())) return false;
+            if (filters.tipo && item.tipo !== filters.tipo) return false;
+            
+            const valorMin = parseFloat(filters.valorMin);
+            if (!isNaN(valorMin) && (item.valor ?? 0) < valorMin) return false;
+            
+            const valorMax = parseFloat(filters.valorMax);
+            if (!isNaN(valorMax) && (item.valor ?? 0) > valorMax) return false;
+            
+            const stockMin = parseInt(filters.stockMin, 10);
+            if (!isNaN(stockMin) && item.stock_actual < stockMin) return false;
+            
+            const stockMax = parseInt(filters.stockMax, 10);
+            if (!isNaN(stockMax) && item.stock_actual > stockMax) return false;
+            
+            return true;
+        });
+    }, [items, filters]);
+    
+    const filterInputStyle = "w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm";
+    const filterLabelStyle = "block text-sm font-medium text-gray-700 mb-1";
+
 
     if (loading) return <div>Cargando productos...</div>;
 
@@ -97,12 +158,63 @@ const Products: React.FC = () => {
         <div className="space-y-4">
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Gestión de Productos</h1>
-                <button onClick={() => setEditingItem({})} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
-                    + Nuevo Producto
-                </button>
+                 <div className="flex items-center space-x-2">
+                     <button 
+                        onClick={() => setIsFilterOpen(prev => !prev)}
+                        className="px-4 py-2 text-sm font-medium bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                        {isFilterOpen ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+                    </button>
+                    <button onClick={() => setEditingItem({})} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                        + Nuevo Producto
+                    </button>
+                </div>
             </div>
             
             {editingItem && <ItemForm item={editingItem} onSave={handleSave} onCancel={() => setEditingItem(null)} />}
+
+            {isFilterOpen && (
+                <div className="bg-white p-4 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-4">Filtrar Productos</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
+                        <div>
+                            <label htmlFor="codigo" className={filterLabelStyle}>Código</label>
+                            <input type="text" name="codigo" value={filters.codigo} onChange={handleFilterChange} className={filterInputStyle} placeholder="Buscar por código..." />
+                        </div>
+                        <div>
+                            <label htmlFor="tipo" className={filterLabelStyle}>Tipo</label>
+                            <select name="tipo" value={filters.tipo} onChange={handleFilterChange} className={filterInputStyle}>
+                                <option value="">Todos</option>
+                                <option value={ItemType.MP}>Materia Prima (MP)</option>
+                                <option value={ItemType.PT}>Producto Terminado (PT)</option>
+                            </select>
+                        </div>
+                        <div className="md:col-span-1 lg:col-span-2 grid grid-cols-2 gap-4">
+                            <div>
+                                <label htmlFor="valorMin" className={filterLabelStyle}>Valor Mín.</label>
+                                <input type="number" name="valorMin" value={filters.valorMin} onChange={handleFilterChange} className={filterInputStyle} placeholder="0.00" min="0" step="0.01" />
+                            </div>
+                            <div>
+                                <label htmlFor="valorMax" className={filterLabelStyle}>Valor Máx.</label>
+                                <input type="number" name="valorMax" value={filters.valorMax} onChange={handleFilterChange} className={filterInputStyle} placeholder="1000.00" min="0" step="0.01" />
+                            </div>
+                        </div>
+                         <div className="md:col-span-1 lg:col-span-2 grid grid-cols-2 gap-4">
+                             <div>
+                                <label htmlFor="stockMin" className={filterLabelStyle}>Stock Mín.</label>
+                                <input type="number" name="stockMin" value={filters.stockMin} onChange={handleFilterChange} className={filterInputStyle} placeholder="0" min="0" />
+                            </div>
+                            <div>
+                                <label htmlFor="stockMax" className={filterLabelStyle}>Stock Máx.</label>
+                                <input type="number" name="stockMax" value={filters.stockMax} onChange={handleFilterChange} className={filterInputStyle} placeholder="100" min="0" />
+                            </div>
+                        </div>
+                    </div>
+                     <div className="flex justify-end mt-4">
+                        <button onClick={clearFilters} className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300">Limpiar Filtros</button>
+                    </div>
+                </div>
+            )}
 
             <div className="bg-white p-4 rounded-lg shadow-md overflow-x-auto">
                 <table className="w-full text-sm text-left text-gray-500">
@@ -113,25 +225,35 @@ const Products: React.FC = () => {
                             <th className="px-6 py-3">Descripción</th>
                             <th className="px-6 py-3 text-center">Stock Actual</th>
                             <th className="px-6 py-3 text-center">Stock Mínimo</th>
+                            <th className="px-6 py-3 text-right">Valor Unitario</th>
                             <th className="px-6 py-3">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {items.map(item => (
-                            <tr key={item.id} className={`border-b ${item.stock_actual < item.stock_minimo ? 'bg-yellow-50' : 'bg-white'}`}>
-                                <td className="px-6 py-4 text-2xl" title={item.tipo === ItemType.MP ? 'Materia Prima' : 'Producto Terminado'}>
-                                    {item.tipo === ItemType.MP ? '🔩' : '📦'}
-                                </td>
-                                <td className="px-6 py-4 font-medium text-gray-900">{item.codigo}</td>
-                                <td className="px-6 py-4">{item.descripcion}</td>
-                                <td className={`px-6 py-4 text-center font-bold ${item.stock_actual < item.stock_minimo ? 'text-red-600' : ''}`}>{item.stock_actual}</td>
-                                <td className="px-6 py-4 text-center">{item.stock_minimo}</td>
-                                <td className="px-6 py-4 space-x-2">
-                                    <button onClick={() => setEditingItem(item)} className="font-medium text-primary-600 hover:underline">Editar</button>
-                                    <button onClick={() => handleDelete(item.id)} className="font-medium text-red-600 hover:underline">Eliminar</button>
+                        {filteredItems.length === 0 ? (
+                            <tr>
+                                <td colSpan={7} className="text-center py-4 text-gray-500">
+                                    No se encontraron productos con los filtros aplicados.
                                 </td>
                             </tr>
-                        ))}
+                        ) : (
+                            filteredItems.map(item => (
+                                <tr key={item.id} className={`border-b ${item.stock_actual < item.stock_minimo ? 'bg-red-50' : 'bg-white'}`}>
+                                    <td className="px-6 py-4 text-2xl" title={item.tipo === ItemType.MP ? 'Materia Prima' : 'Producto Terminado'}>
+                                        {item.tipo === ItemType.MP ? '🔩' : '📦'}
+                                    </td>
+                                    <td className="px-6 py-4 font-medium text-gray-900">{item.codigo}</td>
+                                    <td className="px-6 py-4">{item.descripcion}</td>
+                                    <td className={`px-6 py-4 text-center font-bold ${item.stock_actual < item.stock_minimo ? 'text-red-600' : ''}`}>{item.stock_actual}</td>
+                                    <td className="px-6 py-4 text-center">{item.stock_minimo}</td>
+                                    <td className="px-6 py-4 text-right font-mono">${(item.valor || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td className="px-6 py-4 space-x-2">
+                                        <button onClick={() => setEditingItem(item)} className="font-medium text-primary-600 hover:underline">Editar</button>
+                                        <button onClick={() => handleDelete(item.id)} className="font-medium text-red-600 hover:underline">Eliminar</button>
+                                    </td>
+                                </tr>
+                            ))
+                        )}
                     </tbody>
                 </table>
             </div>

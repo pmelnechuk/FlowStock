@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { Item, Movement, MovementType, NewMovement, User } from '../types';
 import { useAuth } from '../hooks/useAuth';
@@ -6,6 +6,7 @@ import { useAuth } from '../hooks/useAuth';
 const Movements: React.FC = () => {
     const { user: currentUser } = useAuth();
     const [items, setItems] = useState<Item[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
     const [movements, setMovements] = useState<(Movement & { item: Item; user?: User })[]>([]);
     const [loading, setLoading] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
@@ -14,6 +15,14 @@ const Movements: React.FC = () => {
     const [success, setSuccess] = useState('');
     const [fetchError, setFetchError] = useState<string | null>(null);
     const [isFormOpen, setIsFormOpen] = useState(false);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [filters, setFilters] = useState({
+        codigo: '',
+        tipo: '',
+        usuarioId: '',
+        fechaDesde: '',
+        fechaHasta: '',
+    });
 
     const fetchData = useCallback(async () => {
         setLoading(true);
@@ -28,13 +37,14 @@ const Movements: React.FC = () => {
             if (itemsRes.error || movementsRes.error || usersRes.error) {
                 throw new Error(itemsRes.error?.message || movementsRes.error?.message || usersRes.error?.message || 'Error al cargar los datos.');
             }
+            
+            if (usersRes.data) setAllUsers(usersRes.data);
+            const usersMap = new Map(usersRes.data?.map((u: User) => [u.id, u]) || []);
 
-            const usersMap = new Map(usersRes.data.map((u: User) => [u.id, u]));
-
-            const enrichedMovements = movementsRes.data.map((m: Movement & { item: Item }) => ({
+            const enrichedMovements = movementsRes.data?.map((m: Movement & { item: Item }) => ({
                 ...m,
                 user: usersMap.get(m.usuario_id),
-            }));
+            })) || [];
 
             if (itemsRes.data) setItems(itemsRes.data);
             setMovements(enrichedMovements);
@@ -49,6 +59,36 @@ const Movements: React.FC = () => {
     useEffect(() => {
         fetchData();
     }, [fetchData]);
+
+    const filteredMovements = useMemo(() => {
+        return movements.filter(m => {
+            if (filters.codigo && !m.item?.codigo.toLowerCase().includes(filters.codigo.toLowerCase())) return false;
+            if (filters.tipo && m.tipo !== filters.tipo) return false;
+            if (filters.usuarioId && m.usuario_id !== filters.usuarioId) return false;
+            
+            const movementDate = new Date(m.fecha).getTime();
+            if (filters.fechaDesde) {
+                const fechaDesde = new Date(filters.fechaDesde).getTime();
+                if (movementDate < fechaDesde) return false;
+            }
+            if (filters.fechaHasta) {
+                // Add one day to include the end date
+                const fechaHasta = new Date(filters.fechaHasta).getTime() + (24 * 60 * 60 * 1000);
+                if (movementDate > fechaHasta) return false;
+            }
+            
+            return true;
+        });
+    }, [movements, filters]);
+
+    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFilters(prev => ({ ...prev, [name]: value }));
+    };
+
+    const clearFilters = () => {
+        setFilters({ codigo: '', tipo: '', usuarioId: '', fechaDesde: '', fechaHasta: '' });
+    };
 
     const handleOpenForm = () => {
         setFormError('');
@@ -118,16 +158,33 @@ const Movements: React.FC = () => {
     };
     
     const MovementTypeColors: Record<MovementType, string> = {
-        [MovementType.ENT]: 'bg-green-100 text-green-800',
-        [MovementType.SAL]: 'bg-red-100 text-red-800',
-        [MovementType.AJU]: 'bg-blue-100 text-blue-800',
+        [MovementType.ENT]: 'bg-primary-100 text-primary-800',
+        [MovementType.SAL]: 'bg-primary-100 text-primary-800',
+        [MovementType.AJU]: 'bg-primary-100 text-primary-800',
     };
 
     const inputStyle = "w-full mt-1 block px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500";
+    const filterInputStyle = "w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm";
+    const filterLabelStyle = "block text-sm font-medium text-gray-700 mb-1";
 
     return (
         <div className="space-y-6">
-             {isFormOpen && (
+            <div className="flex justify-between items-center">
+                <h1 className="text-2xl font-bold">Movimientos</h1>
+                <div className="flex items-center space-x-2">
+                     <button 
+                        onClick={() => setIsFilterOpen(prev => !prev)}
+                        className="px-4 py-2 text-sm font-medium bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                        {isFilterOpen ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+                    </button>
+                    <button onClick={handleOpenForm} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                        + Registrar Movimiento
+                    </button>
+                </div>
+            </div>
+
+            {isFormOpen && (
                 <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
                     <div className="bg-white rounded-lg shadow-xl p-6 w-full max-w-lg">
                         <h2 className="text-xl font-bold mb-4">Registrar Movimiento</h2>
@@ -170,12 +227,49 @@ const Movements: React.FC = () => {
                     </div>
                 </div>
             )}
+            
+            {isFilterOpen &&
+                <div className="bg-white p-4 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-4">Filtrar Movimientos</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-4 items-end">
+                        <div>
+                            <label htmlFor="codigo" className={filterLabelStyle}>Código</label>
+                            <input type="text" name="codigo" value={filters.codigo} onChange={handleFilterChange} className={filterInputStyle} placeholder="Buscar por código..." />
+                        </div>
+                        <div>
+                            <label htmlFor="tipo" className={filterLabelStyle}>Tipo</label>
+                            <select name="tipo" value={filters.tipo} onChange={handleFilterChange} className={filterInputStyle}>
+                                <option value="">Todos</option>
+                                <option value={MovementType.ENT}>{MovementTypeLabels.ENT}</option>
+                                <option value={MovementType.SAL}>{MovementTypeLabels.SAL}</option>
+                                <option value={MovementType.AJU}>{MovementTypeLabels.AJU}</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="usuarioId" className={filterLabelStyle}>Usuario</label>
+                            <select name="usuarioId" value={filters.usuarioId} onChange={handleFilterChange} className={filterInputStyle}>
+                                <option value="">Todos</option>
+                                {allUsers.map(user => <option key={user.id} value={user.id}>{user.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="fechaDesde" className={filterLabelStyle}>Desde</label>
+                            <input type="date" name="fechaDesde" value={filters.fechaDesde} onChange={handleFilterChange} className={filterInputStyle} />
+                        </div>
+                        <div>
+                            <label htmlFor="fechaHasta" className={filterLabelStyle}>Hasta</label>
+                            <input type="date" name="fechaHasta" value={filters.fechaHasta} onChange={handleFilterChange} className={filterInputStyle} />
+                        </div>
+                    </div>
+                    <div className="flex justify-end mt-4">
+                        <button onClick={clearFilters} className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300">Limpiar Filtros</button>
+                    </div>
+                </div>
+            }
+
             <div className="bg-white p-6 rounded-lg shadow-md">
                 <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-xl font-bold">Últimos Movimientos</h2>
-                    <button onClick={handleOpenForm} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
-                        + Registrar Movimiento
-                    </button>
+                    <h2 className="text-xl font-bold">Historial de Movimientos</h2>
                 </div>
                 <div className="overflow-x-auto">
                     {loading ? (
@@ -187,6 +281,7 @@ const Movements: React.FC = () => {
                             <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                                 <tr>
                                     <th className="px-4 py-3">Fecha</th>
+                                    <th className="px-4 py-3">Código</th>
                                     <th className="px-4 py-3">Producto</th>
                                     <th className="px-4 py-3">Tipo</th>
                                     <th className="px-4 py-3 text-right">Cantidad</th>
@@ -195,14 +290,15 @@ const Movements: React.FC = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {movements.length === 0 ? (
+                                {filteredMovements.length === 0 ? (
                                     <tr>
-                                        <td colSpan={6} className="text-center py-4 text-gray-500">No hay movimientos registrados.</td>
+                                        <td colSpan={7} className="text-center py-4 text-gray-500">No se encontraron movimientos con los filtros aplicados.</td>
                                     </tr>
                                 ) : (
-                                    movements.map(m => (
+                                    filteredMovements.map(m => (
                                         <tr key={m.id} className="border-b">
                                             <td className="px-4 py-2 text-gray-900">{new Date(m.fecha).toLocaleString()}</td>
+                                            <td className="px-4 py-2 font-mono text-gray-900">{m.item?.codigo}</td>
                                             <td className="px-4 py-2 font-medium text-gray-900">{m.item?.descripcion || 'Producto no encontrado'}</td>
                                             <td className="px-4 py-2">
                                                 <span className={`px-2 py-1 text-xs font-medium rounded-full ${MovementTypeColors[m.tipo]}`}>{MovementTypeLabels[m.tipo]}</span>

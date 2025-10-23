@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 // FIX: Changed react-router-dom import to fix module resolution error.
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
@@ -13,6 +13,7 @@ import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
 import Movements from './pages/Movements';
 import Users from './pages/Users';
+import Welcome from './pages/Welcome';
 import { Role } from './types';
 import { isSupabaseConfigured } from './lib/supabaseClient';
 
@@ -54,21 +55,66 @@ const SupabaseSetup: React.FC = () => {
     );
 };
 
+const PrivateRoutes: React.FC = () => {
+  const { user } = useAuth();
+  if (!user) {
+    return <Navigate to="/welcome" replace />;
+  }
+  return <Layout />;
+};
 
 const AppRoutes: React.FC = () => {
-    const { loading } = useAuth();
+    const { loading, user } = useAuth();
+    const [showReload, setShowReload] = useState(false);
+
+    useEffect(() => {
+        let timer: ReturnType<typeof setTimeout>;
+        if (loading) {
+            timer = setTimeout(() => {
+                setShowReload(true);
+            }, 8000); // Show button after 8 seconds
+        }
+
+        return () => {
+            if (timer) {
+                clearTimeout(timer);
+            }
+        };
+    }, [loading]);
+
     if (loading) {
-        return <div className="flex justify-center items-center h-screen text-gray-500">Cargando...</div>
+        return (
+            <div className="flex flex-col justify-center items-center h-screen text-gray-600 bg-gray-50">
+                <svg className="animate-spin h-12 w-12 text-primary-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p className="mt-4 text-lg">Cargando aplicación...</p>
+                {showReload && (
+                    <div className="text-center mt-6 animate-fade-in">
+                        <p className="text-sm text-gray-500">Parece que está tardando más de lo normal.</p>
+                        <button
+                            onClick={() => window.location.reload()}
+                            className="mt-4 px-5 py-2.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-4 focus:ring-primary-300"
+                        >
+                            Recargar la página
+                        </button>
+                    </div>
+                )}
+            </div>
+        );
     }
 
     return (
         <Routes>
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/welcome" element={!user ? <Welcome /> : <Navigate to="/" replace />} />
+            <Route path="/login" element={!user ? <Login /> : <Navigate to="/" replace />} />
+            <Route path="/register" element={!user ? <Register /> : <Navigate to="/" replace />} />
+            <Route path="/forgot-password" element={!user ? <ForgotPassword /> : <Navigate to="/" replace />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/" element={<Layout />}>
-                <Route index element={<Dashboard />} />
+
+            <Route element={<PrivateRoutes />}>
+                <Route path="/" element={<Dashboard />} />
                 <Route path="productos" element={
                     <ProtectedRoute roles={[Role.ADMIN]}>
                         <Products />
@@ -85,7 +131,8 @@ const AppRoutes: React.FC = () => {
                     </ProtectedRoute>
                 } />
             </Route>
-            <Route path="*" element={<Navigate to="/" replace />} />
+
+            <Route path="*" element={<Navigate to={user ? "/" : "/welcome"} replace />} />
         </Routes>
     );
 }

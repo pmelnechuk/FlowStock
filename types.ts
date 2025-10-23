@@ -26,6 +26,7 @@ export interface Item {
   unidad: string;
   stock_minimo: number;
   stock_actual: number;
+  valor: number;
 }
 
 export enum MovementType {

@@ -12,7 +12,7 @@ const DashboardCard: React.FC<{ title: string; value: string | number; borderCol
 );
 
 const LowStockToast: React.FC<{ count: number; onClose: () => void }> = ({ count, onClose }) => (
-    <div className="fixed top-20 right-6 w-full max-w-sm p-4 bg-yellow-400 border-l-4 border-yellow-700 text-yellow-800 rounded-lg shadow-lg flex justify-between items-center z-50">
+    <div className="fixed top-20 right-6 w-full max-w-sm p-4 bg-red-100 border-l-4 border-red-500 text-red-800 rounded-lg shadow-lg flex justify-between items-center z-50">
         <div>
             <p className="font-bold">Alerta de Stock Bajo</p>
             <p>{count} ítem(s) están por debajo del stock mínimo.</p>
@@ -43,7 +43,8 @@ const Dashboard: React.FC = () => {
     const totalMP = items.filter(i => i.tipo === ItemType.MP).length;
     const totalPT = items.filter(i => i.tipo === ItemType.PT).length;
     const lowStockItems = items.filter(i => i.stock_actual < i.stock_minimo);
-    return { totalItems, totalMP, totalPT, lowStockItems };
+    const totalValue = items.reduce((sum, item) => sum + (item.stock_actual * (item.valor || 0)), 0);
+    return { totalItems, totalMP, totalPT, lowStockItems, totalValue };
   }, [items]);
   
   useEffect(() => {
@@ -60,10 +61,17 @@ const Dashboard: React.FC = () => {
           <LowStockToast count={stats.lowStockItems.length} onClose={() => setShowToast(false)} />
       )}
       
+      <div className="p-6 rounded-lg shadow-md bg-white border-l-4 border-primary-500">
+        <h3 className="text-lg font-semibold text-gray-500">Valor Total del Inventario</h3>
+        <p className="text-5xl font-bold text-primary-600 mt-2">
+            ${stats.totalValue.toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+        </p>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <DashboardCard title="Total Productos" value={stats.totalItems} borderColor="border-blue-500" textColor="text-blue-600" />
-        <DashboardCard title="Materias Primas (MP)" value={stats.totalMP} borderColor="border-blue-500" textColor="text-blue-600" />
-        <DashboardCard title="Productos Terminados (PT)" value={stats.totalPT} borderColor="border-blue-500" textColor="text-blue-600" />
+        <DashboardCard title="Total Productos" value={stats.totalItems} borderColor="border-primary-500" textColor="text-primary-600" />
+        <DashboardCard title="Materias Primas (MP)" value={stats.totalMP} borderColor="border-primary-500" textColor="text-primary-600" />
+        <DashboardCard title="Productos Terminados (PT)" value={stats.totalPT} borderColor="border-primary-500" textColor="text-primary-600" />
         <DashboardCard title="Items con Stock Bajo" value={stats.lowStockItems.length} borderColor="border-red-500" textColor="text-red-600" />
       </div>
 
@@ -74,18 +82,18 @@ const Dashboard: React.FC = () => {
             <table className="w-full text-sm">
               <thead className="text-xs text-gray-700 uppercase bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3">Código</th>
-                  <th className="px-4 py-3">Descripción</th>
+                  <th className="px-4 py-3 text-center">Código</th>
+                  <th className="px-4 py-3 text-center">Descripción</th>
                   <th className="px-4 py-3 text-center">Stock Actual</th>
                   <th className="px-4 py-3 text-center">Stock Mínimo</th>
                 </tr>
               </thead>
               <tbody>
                 {stats.lowStockItems.map(item => (
-                  <tr key={item.id} className="border-b">
-                    <td className="px-4 py-2 font-medium text-gray-900">{item.codigo}</td>
-                    <td className="px-4 py-2 text-gray-900">{item.descripcion}</td>
-                    <td className="px-4 py-2 text-center text-gray-900">{item.stock_actual}</td>
+                  <tr key={item.id} className="border-b bg-red-50">
+                    <td className="px-4 py-2 text-center font-medium text-gray-900">{item.codigo}</td>
+                    <td className="px-4 py-2 text-center text-gray-900">{item.descripcion}</td>
+                    <td className="px-4 py-2 text-center text-red-600 font-bold">{item.stock_actual}</td>
                     <td className="px-4 py-2 text-center text-gray-900">{item.stock_minimo}</td>
                   </tr>
                 ))}
