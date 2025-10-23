@@ -64,7 +64,7 @@ const Register: React.FC = () => {
       </Link>
       <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-lg shadow-md">
         <h2 className="text-2xl font-bold text-center text-gray-900">
-          Crear cuenta en <span className="text-primary-600">Konstruya</span>
+          Crear cuenta en <span className="text-primary-600">FlowStock</span>
         </h2>
         
         <form className="space-y-4" onSubmit={handleSubmit}>

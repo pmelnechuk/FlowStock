@@ -4,6 +4,8 @@ import { Item, Movement, MovementType, User, NewMovement, Recipe, ItemType } fro
 import { useAuth } from '../hooks/useAuth';
 
 type ConceptualMovementType = 'PRODUCCION_PT' | 'ENTRADA_MP' | 'SALIDA_PT' | 'AJUSTE';
+type FilterableMovementType = ConceptualMovementType | 'CONSUMO_MP';
+
 
 const Toast: React.FC<{ message: string; type: 'error' | 'success'; onClose: () => void }> = ({ message, type, onClose }) => {
     const bgColor = type === 'error' ? 'bg-red-500' : 'bg-green-500';
@@ -155,7 +157,6 @@ const MovementForm: React.FC<{
     );
 };
 
-
 const Movements: React.FC = () => {
     const [movements, setMovements] = useState<(Movement & { item: Item })[]>([]);
     const [items, setItems] = useState<Item[]>([]);
@@ -165,6 +166,14 @@ const Movements: React.FC = () => {
     const [isFormOpen, setIsFormOpen] = useState(false);
     const { user: currentUser } = useAuth();
     const [toast, setToast] = useState<{ message: string; type: 'error' | 'success' } | null>(null);
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [filters, setFilters] = useState({
+        startDate: '',
+        endDate: '',
+        itemId: '',
+        userId: '',
+        movementType: '',
+    });
     
     const itemsMap = useMemo(() => new Map(items.map(item => [item.id, item])), [items]);
     const recipesMap = useMemo(() => new Map(recipes.map(recipe => [recipe.producto_terminado_id, recipe])), [recipes]);
@@ -222,7 +231,6 @@ const Movements: React.FC = () => {
             return false;
         }
 
-        // --- VALIDATION LOGIC ---
         if (conceptualType === 'SALIDA_PT') {
             if (selectedItem.stock_actual < cantidad) {
                 setToast({ message: `Stock insuficiente para '${selectedItem.codigo}'.\nStock actual: ${selectedItem.stock_actual}, se intenta retirar: ${cantidad}.`, type: 'error' });
@@ -254,7 +262,6 @@ const Movements: React.FC = () => {
             }
         }
 
-        // --- MAP CONCEPTUAL TYPE TO DB TYPE ---
         let dbMovementType: MovementType;
         switch (conceptualType) {
             case 'PRODUCCION_PT':
@@ -289,23 +296,71 @@ const Movements: React.FC = () => {
 
     const usersMap = useMemo(() => new Map(users.map(u => [u.id, u.nombre])), [users]);
     
-    const getMovementBadge = (mov: Movement & { item: Item }): { text: string; className: string } => {
+    const getConceptualMovementType = (mov: Movement & { item: Item }): FilterableMovementType => {
         if (mov.tipo === MovementType.SAL && mov.observacion?.startsWith('Salida automática por producción')) {
-            return { text: 'Consumo MP', className: 'bg-yellow-100 text-yellow-800' };
+            return 'CONSUMO_MP';
         }
         switch (mov.tipo) {
             case MovementType.ENT:
-                return mov.item.tipo === ItemType.PT
-                    ? { text: 'Producción PT', className: 'bg-purple-100 text-purple-800' }
-                    : { text: 'Entrada MP', className: 'bg-green-100 text-green-800' };
+                return mov.item.tipo === ItemType.PT ? 'PRODUCCION_PT' : 'ENTRADA_MP';
             case MovementType.SAL:
-                return { text: 'Salida PT', className: 'bg-red-100 text-red-800' };
+                return 'SALIDA_PT';
             case MovementType.AJU:
-                return { text: 'Ajuste', className: 'bg-blue-100 text-blue-800' };
+                return 'AJUSTE';
             default:
-                return { text: mov.tipo, className: 'bg-gray-100 text-gray-800' };
+                return 'AJUSTE'; // Fallback
         }
     };
+    
+    const movementTypeConfig: Record<FilterableMovementType, { text: string; className: string }> = {
+        'PRODUCCION_PT': { text: 'Producción PT', className: 'bg-purple-100 text-purple-800' },
+        'ENTRADA_MP': { text: 'Entrada MP', className: 'bg-green-100 text-green-800' },
+        'SALIDA_PT': { text: 'Salida PT', className: 'bg-red-100 text-red-800' },
+        'CONSUMO_MP': { text: 'Consumo MP', className: 'bg-yellow-100 text-yellow-800' },
+        'AJUSTE': { text: 'Ajuste', className: 'bg-blue-100 text-blue-800' },
+    };
+
+    const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+        const { name, value } = e.target;
+        setFilters(prev => ({ ...prev, [name]: value }));
+    };
+
+    const clearFilters = () => {
+        setFilters({
+            startDate: '',
+            endDate: '',
+            itemId: '',
+            userId: '',
+            movementType: '',
+        });
+    };
+
+    const filteredMovements = useMemo(() => {
+        return movements.filter(mov => {
+            if (filters.itemId && mov.item_id !== parseInt(filters.itemId, 10)) return false;
+            if (filters.userId && mov.usuario_id !== filters.userId) return false;
+            
+            const movDate = new Date(mov.fecha);
+            if (filters.startDate) {
+                const startDate = new Date(filters.startDate);
+                startDate.setHours(0, 0, 0, 0);
+                if (movDate < startDate) return false;
+            }
+            if (filters.endDate) {
+                const endDate = new Date(filters.endDate);
+                endDate.setHours(23, 59, 59, 999);
+                if (movDate > endDate) return false;
+            }
+
+            if (filters.movementType && getConceptualMovementType(mov) !== filters.movementType) return false;
+
+            return true;
+        });
+    }, [movements, filters]);
+
+    const filterInputStyle = "w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm";
+    const filterLabelStyle = "block text-sm font-medium text-gray-700 mb-1";
+
 
     if (loading) return <div>Cargando movimientos...</div>;
 
@@ -315,13 +370,64 @@ const Movements: React.FC = () => {
             
             <div className="flex justify-between items-center">
                 <h1 className="text-2xl font-bold">Registro de Movimientos</h1>
-                <button onClick={() => setIsFormOpen(true)} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
-                    + Nuevo Movimiento
-                </button>
+                <div className="flex items-center space-x-2">
+                    <button 
+                        onClick={() => setIsFilterOpen(prev => !prev)}
+                        className="px-4 py-2 text-sm font-medium bg-white border border-gray-300 rounded-md shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary-500"
+                    >
+                        {isFilterOpen ? 'Ocultar Filtros' : 'Mostrar Filtros'}
+                    </button>
+                    <button onClick={() => setIsFormOpen(true)} className="px-4 py-2 bg-primary-600 text-white rounded-md hover:bg-primary-700">
+                        + Nuevo Movimiento
+                    </button>
+                </div>
             </div>
             
             {isFormOpen && <MovementForm items={items} recipes={recipes} onSave={handleSave} onCancel={() => setIsFormOpen(false)} />}
             
+            {isFilterOpen && (
+                <div className="bg-white p-4 rounded-lg shadow-md">
+                    <h3 className="text-lg font-semibold mb-4">Filtrar Movimientos</h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                        <div>
+                            <label htmlFor="startDate" className={filterLabelStyle}>Desde</label>
+                            <input type="date" name="startDate" value={filters.startDate} onChange={handleFilterChange} className={filterInputStyle} />
+                        </div>
+                        <div>
+                            <label htmlFor="endDate" className={filterLabelStyle}>Hasta</label>
+                            <input type="date" name="endDate" value={filters.endDate} onChange={handleFilterChange} className={filterInputStyle} />
+                        </div>
+                        <div>
+                            <label htmlFor="itemId" className={filterLabelStyle}>Producto</label>
+                            <select name="itemId" value={filters.itemId} onChange={handleFilterChange} className={filterInputStyle}>
+                                <option value="">Todos</option>
+                                {items.map(item => <option key={item.id} value={item.id}>{item.codigo} - {item.descripcion}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label htmlFor="movementType" className={filterLabelStyle}>Tipo de Operación</label>
+                            <select name="movementType" value={filters.movementType} onChange={handleFilterChange} className={filterInputStyle}>
+                                <option value="">Todos</option>
+                                {Object.entries(movementTypeConfig).map(([key, config]) => (
+                                    <option key={key} value={key}>{config.text}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="lg:col-span-2">
+                            <label htmlFor="userId" className={filterLabelStyle}>Usuario</label>
+                            <select name="userId" value={filters.userId} onChange={handleFilterChange} className={filterInputStyle}>
+                                <option value="">Todos</option>
+                                {users.map(user => <option key={user.id} value={user.id}>{user.nombre}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                    <div className="flex justify-end mt-4">
+                        <button onClick={clearFilters} className="px-4 py-2 bg-gray-200 text-gray-800 text-sm rounded-md hover:bg-gray-300">Limpiar Filtros</button>
+                    </div>
+                </div>
+            )}
+
+
             <div className="bg-white p-4 rounded-lg shadow-md overflow-x-auto">
                 <table className="w-full text-sm text-left text-gray-500">
                     <thead className="text-xs text-gray-700 uppercase bg-gray-50">
@@ -335,28 +441,36 @@ const Movements: React.FC = () => {
                         </tr>
                     </thead>
                     <tbody>
-                        {movements.map(mov => {
-                            const badge = getMovementBadge(mov);
-                            return (
-                                <tr key={mov.id} className="bg-white border-b">
-                                    <td className="px-6 py-4">{new Date(mov.fecha).toLocaleString('es-ES')}</td>
-                                    <td className="px-6 py-4 font-medium text-gray-900">
-                                        <div className="font-bold">{mov.item.codigo}</div>
-                                        <div className="text-xs text-gray-500">{mov.item.descripcion}</div>
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        <span className={`px-2 py-1 text-xs font-medium rounded-full ${badge.className}`}>
-                                            {badge.text}
-                                        </span>
-                                    </td>
-                                    <td className={`px-6 py-4 text-center font-bold ${mov.tipo === 'SAL' || mov.tipo === 'AJU' && mov.cantidad < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                        {mov.tipo === 'SAL' ? '-' : ''}{mov.cantidad}
-                                    </td>
-                                    <td className="px-6 py-4">{usersMap.get(mov.usuario_id) || 'Desconocido'}</td>
-                                    <td className="px-6 py-4 text-gray-600 italic">{mov.observacion}</td>
-                                </tr>
-                            );
-                        })}
+                        {filteredMovements.length === 0 ? (
+                             <tr>
+                                <td colSpan={6} className="text-center py-4 text-gray-500">
+                                    No se encontraron movimientos con los filtros aplicados.
+                                </td>
+                            </tr>
+                        ) : (
+                            filteredMovements.map(mov => {
+                                const badge = movementTypeConfig[getConceptualMovementType(mov)];
+                                return (
+                                    <tr key={mov.id} className="bg-white border-b">
+                                        <td className="px-6 py-4">{new Date(mov.fecha).toLocaleString('es-ES')}</td>
+                                        <td className="px-6 py-4 font-medium text-gray-900">
+                                            <div className="font-bold">{mov.item.codigo}</div>
+                                            <div className="text-xs text-gray-500">{mov.item.descripcion}</div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${badge.className}`}>
+                                                {badge.text}
+                                            </span>
+                                        </td>
+                                        <td className={`px-6 py-4 text-center font-bold ${mov.tipo === 'SAL' || mov.tipo === 'AJU' && mov.cantidad < 0 ? 'text-red-600' : 'text-green-600'}`}>
+                                            {mov.tipo === 'SAL' ? '-' : ''}{mov.cantidad}
+                                        </td>
+                                        <td className="px-6 py-4">{usersMap.get(mov.usuario_id) || 'Desconocido'}</td>
+                                        <td className="px-6 py-4 text-gray-600 italic">{mov.observacion}</td>
+                                    </tr>
+                                );
+                            })
+                        )}
                     </tbody>
                 </table>
             </div>
