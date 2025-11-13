@@ -134,14 +134,16 @@ const Recipes: React.FC = () => {
                 if (!recipesMap.has(r.producto_terminado_id)) {
                     recipesMap.set(r.producto_terminado_id, {
                         producto_terminado_id: r.producto_terminado_id,
-                        producto_terminado: r.producto as Item,
+                        // FIX: The API returns related items as an array. Access the first element to fix type error.
+                        producto_terminado: (r.producto as Item[])[0],
                         componentes: []
                     });
                 }
                 recipesMap.get(r.producto_terminado_id)?.componentes.push({
                     materia_prima_id: r.materia_prima_id,
                     cantidad_necesaria: r.cantidad_necesaria,
-                    materia_prima: r.materia_prima as Item
+                    // FIX: The API returns related items as an array. Access the first element to fix type error.
+                    materia_prima: (r.materia_prima as Item[])[0]
                 });
             });
             setRecipes(Array.from(recipesMap.values()));

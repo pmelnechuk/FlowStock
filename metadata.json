@@ -1,5 +1,5 @@
 {
-  "name": "FlowStock Inventory Manager",
-  "description": "A comprehensive inventory management system named FlowStock, connected to Supabase. It allows tracking products, stock movements, and user roles, featuring a dashboard with low-stock alerts.",
+  "name": "Konstruya Inventario",
+  "description": "A comprehensive inventory management system named Konstruya Inventario, connected to Supabase. It allows tracking products, stock movements, and user roles, featuring a dashboard with low-stock alerts.",
   "requestFramePermissions": []
 }

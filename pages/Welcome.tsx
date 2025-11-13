@@ -13,7 +13,7 @@ const Welcome: React.FC = () => {
     <div className="flex flex-col items-center justify-center min-h-screen bg-gray-50 text-gray-800">
       <div className="max-w-2xl mx-auto text-center p-8">
         <h1 className="text-4xl md:text-5xl font-bold mb-4">
-          Bienvenido a <span className="text-primary-600">FlowStock</span>
+          Bienvenido a <span className="text-primary-600">Konstruya Inventario</span>
         </h1>
         <p className="text-lg text-gray-600 mb-8">
           Por favor, inicia sesión para continuar o regístrate si aún no tienes una cuenta.
@@ -34,7 +34,7 @@ const Welcome: React.FC = () => {
         </div>
       </div>
       <footer className="absolute bottom-4 text-center text-gray-500 text-sm">
-        <p>&copy; {new Date().getFullYear()} FlowStock. Todos los derechos reservados.</p>
+        <p>&copy; {new Date().getFullYear()} Konstruya Inventario. Todos los derechos reservados.</p>
       </footer>
     </div>
   );

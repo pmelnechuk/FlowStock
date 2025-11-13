@@ -115,8 +115,8 @@ export const supabaseService = {
                 producto_terminado_id,
                 materia_prima_id,
                 cantidad_necesaria,
-                producto:producto_terminado_id (id, codigo, descripcion, tipo),
-                materia_prima:materia_prima_id (id, codigo, descripcion, tipo)
+                producto:producto_terminado_id (*),
+                materia_prima:materia_prima_id (*)
             `)
             .order('producto_terminado_id');
     },

@@ -18,7 +18,10 @@ const Sidebar: React.FC = () => {
   return (
     <aside className="w-64 flex-shrink-0 bg-white p-4 border-r border-gray-200">
       <div className="flex items-center mb-8">
-        <span className="text-2xl font-bold text-primary-600">FlowStock</span>
+        <div className="flex flex-col">
+          <span className="text-2xl font-bold text-primary-600 leading-tight">Konstruya</span>
+          <span className="text-xl font-medium text-primary-600 leading-tight">Inventario</span>
+        </div>
       </div>
       <nav className="space-y-2">
         <NavLink to="/" className={navLinkClasses}>
