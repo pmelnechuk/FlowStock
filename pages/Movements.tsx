@@ -39,6 +39,8 @@ const MovementForm: React.FC<{
     const [observacion, setObservacion] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    
+    const isAjuste = conceptualType === 'AJUSTE';
 
     const productOptions = useMemo(() => {
         switch (conceptualType) {
@@ -65,7 +67,7 @@ const MovementForm: React.FC<{
         
         const numCantidad = parseInt(cantidad, 10);
 
-        if (!itemId || !conceptualType || !cantidad || isNaN(numCantidad) || numCantidad <= 0) {
+        if (!itemId || !conceptualType || cantidad === '' || isNaN(numCantidad) || (!isAjuste && numCantidad <= 0)) {
             setError("Por favor, complete todos los campos requeridos con valores válidos.");
             return;
         }
@@ -103,7 +105,7 @@ const MovementForm: React.FC<{
                             <option value="PRODUCCION_PT">Producción de Producto Terminado</option>
                             <option value="ENTRADA_MP">Entrada de Materia Prima</option>
                             <option value="SALIDA_PT">Salida de Producto Terminado</option>
-                            <option value="AJUSTE">Ajuste</option>
+                            <option value="AJUSTE">Ajuste (Setear Stock)</option>
                         </select>
                     </div>
 
@@ -118,14 +120,16 @@ const MovementForm: React.FC<{
                     </div>
 
                     <div>
-                        <label htmlFor="cantidad" className="block text-sm font-medium">Cantidad</label>
+                        <label htmlFor="cantidad" className="block text-sm font-medium">
+                            {isAjuste ? 'Cantidad Final en Stock' : 'Cantidad'}
+                        </label>
                         <input
                             type="number"
                             name="cantidad"
                             id="cantidad"
                             value={cantidad}
                             onChange={(e) => setCantidad(e.target.value)}
-                            min="1"
+                            min={isAjuste ? "0" : "1"}
                             step="1"
                             onKeyDown={(e) => {
                                 // Prevent decimal points, 'e', and other non-integer keys
@@ -231,13 +235,6 @@ const Movements: React.FC = () => {
             return false;
         }
 
-        if (conceptualType === 'SALIDA_PT') {
-            if (selectedItem.stock_actual < cantidad) {
-                setToast({ message: `Stock insuficiente para '${selectedItem.codigo}'.\nStock actual: ${selectedItem.stock_actual}, se intenta retirar: ${cantidad}.`, type: 'error' });
-                return false;
-            }
-        }
-
         if (conceptualType === 'PRODUCCION_PT') {
             const recipe = recipesMap.get(item_id);
             if (!recipe) {
@@ -255,43 +252,88 @@ const Movements: React.FC = () => {
                     insufficientMaterials.push(`- '${itemName}': requiere ${requiredAmount}, tiene ${stock}`);
                 }
             }
-
             if (insufficientMaterials.length > 0) {
                 setToast({ message: `Materia prima insuficiente:\n${insufficientMaterials.join('\n')}`, type: 'error' });
                 return false;
             }
-        }
 
-        let dbMovementType: MovementType;
-        switch (conceptualType) {
-            case 'PRODUCCION_PT':
-            case 'ENTRADA_MP':
-                dbMovementType = MovementType.ENT;
-                break;
-            case 'SALIDA_PT':
-                dbMovementType = MovementType.SAL;
-                break;
-            case 'AJUSTE':
-                dbMovementType = MovementType.AJU;
-                break;
-        }
+            const movementsToInsert: Omit<Movement, 'id' | 'fecha'>[] = [];
+            movementsToInsert.push({
+                item_id,
+                tipo: MovementType.ENT,
+                cantidad,
+                usuario_id: currentUser.id,
+                ...(observacion && { observacion })
+            });
 
-        const newMovement: NewMovement = {
-            item_id,
-            tipo: dbMovementType,
-            cantidad,
-            observacion
-        };
+            for (const component of recipe.componentes) {
+                const consumptionObservation = `Salida automática por producción de ${selectedItem.codigo}.` + (observacion ? ` "${observacion}"` : '');
+                movementsToInsert.push({
+                    item_id: component.materia_prima_id,
+                    tipo: MovementType.SAL,
+                    cantidad: cantidad * component.cantidad_necesaria,
+                    usuario_id: currentUser.id,
+                    observacion: consumptionObservation,
+                });
+            }
 
-        const result = await supabaseService.data.addMovement(newMovement, currentUser.id);
-        if (result.error) {
-            setToast({ message: `Error al registrar: ${result.error}`, type: 'error' });
-            return false;
+            const { error } = await supabaseService.data.addMovements(movementsToInsert);
+            if (error) {
+                 setToast({ message: `Error al registrar el lote de movimientos: ${error}`, type: 'error' });
+                 return false;
+            }
+        } else if (conceptualType === 'AJUSTE') {
+            const targetStock = cantidad;
+            const currentStock = selectedItem.stock_actual;
+            const adjustmentAmount = targetStock - currentStock;
+
+            if (adjustmentAmount === 0) {
+                setToast({ message: `El stock del producto '${selectedItem.codigo}' ya es de ${targetStock}. No se realizó ningún ajuste.`, type: 'success' });
+                setIsFormOpen(false);
+                return true;
+            }
+            
+            const finalObservation = `Ajuste de stock de ${currentStock} a ${targetStock}. ${observacion || ''}`.trim();
+
+            const newMovement: NewMovement = {
+                item_id,
+                tipo: MovementType.AJU,
+                cantidad: adjustmentAmount,
+                observacion: finalObservation
+            };
+
+            const result = await supabaseService.data.addMovement(newMovement, currentUser.id);
+            if (result.error) {
+                setToast({ message: `Error al registrar el ajuste: ${result.error}`, type: 'error' });
+                return false;
+            }
         } else {
-            setIsFormOpen(false);
-            fetchAllData();
-            return true;
+            if (conceptualType === 'SALIDA_PT' && selectedItem.stock_actual < cantidad) {
+                setToast({ message: `Stock insuficiente para '${selectedItem.codigo}'.\nStock actual: ${selectedItem.stock_actual}, se intenta retirar: ${cantidad}.`, type: 'error' });
+                return false;
+            }
+
+            let dbMovementType: MovementType;
+            if (conceptualType === 'ENTRADA_MP') {
+                dbMovementType = MovementType.ENT;
+            } else if (conceptualType === 'SALIDA_PT') {
+                dbMovementType = MovementType.SAL;
+            } else {
+                setToast({ message: "Tipo de movimiento conceptual no válido.", type: 'error' });
+                return false;
+            }
+
+            const newMovement: NewMovement = { item_id, tipo: dbMovementType, cantidad, observacion };
+            const result = await supabaseService.data.addMovement(newMovement, currentUser.id);
+            if (result.error) {
+                setToast({ message: `Error al registrar: ${result.error}`, type: 'error' });
+                return false;
+            }
         }
+        
+        setIsFormOpen(false);
+        fetchAllData();
+        return true;
     };
 
     const usersMap = useMemo(() => new Map(users.map(u => [u.id, u.nombre])), [users]);
@@ -361,6 +403,22 @@ const Movements: React.FC = () => {
     const filterInputStyle = "w-full px-3 py-2 bg-white text-gray-900 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500 text-sm";
     const filterLabelStyle = "block text-sm font-medium text-gray-700 mb-1";
 
+    const getAmountDisplay = (mov: Movement): { text: string; className: string } => {
+        switch (mov.tipo) {
+            case MovementType.ENT:
+                return { text: `+${mov.cantidad}`, className: 'text-green-600' };
+            case MovementType.SAL:
+                return { text: `-${mov.cantidad}`, className: 'text-red-600' };
+            case MovementType.AJU:
+                if (mov.cantidad >= 0) {
+                    return { text: `+${mov.cantidad}`, className: 'text-green-600' };
+                } else {
+                    return { text: `${mov.cantidad}`, className: 'text-red-600' };
+                }
+            default:
+                return { text: `${mov.cantidad}`, className: 'text-gray-800' };
+        }
+    };
 
     if (loading) return <div>Cargando movimientos...</div>;
 
@@ -450,6 +508,7 @@ const Movements: React.FC = () => {
                         ) : (
                             filteredMovements.map(mov => {
                                 const badge = movementTypeConfig[getConceptualMovementType(mov)];
+                                const amountDisplay = getAmountDisplay(mov);
                                 return (
                                     <tr key={mov.id} className="bg-white border-b">
                                         <td className="px-6 py-4">{new Date(mov.fecha).toLocaleString('es-ES')}</td>
@@ -462,8 +521,8 @@ const Movements: React.FC = () => {
                                                 {badge.text}
                                             </span>
                                         </td>
-                                        <td className={`px-6 py-4 text-center font-bold ${mov.tipo === 'SAL' || mov.tipo === 'AJU' && mov.cantidad < 0 ? 'text-red-600' : 'text-green-600'}`}>
-                                            {mov.tipo === 'SAL' ? '-' : ''}{mov.cantidad}
+                                        <td className={`px-6 py-4 text-center font-bold ${amountDisplay.className}`}>
+                                            {amountDisplay.text}
                                         </td>
                                         <td className="px-6 py-4">{usersMap.get(mov.usuario_id) || 'Desconocido'}</td>
                                         <td className="px-6 py-4 text-gray-600 italic">{mov.observacion}</td>

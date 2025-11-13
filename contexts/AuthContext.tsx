@@ -38,19 +38,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
               setUser(null);
             }
             // Error case: Profile not found or other DB error.
-            // We DO NOT sign out here to prevent race conditions on sign-up
-            // and to be resilient to temporary DB issues.
+            // We sign out here to clear the corrupt session from storage,
+            // preventing the app from getting stuck on a reload loop.
             else {
               if (error && error.code !== 'PGRST116') {
-                 console.error("Error fetching user profile on load:", error);
+                 console.error("Error fetching user profile, signing out to clear session:", error);
               }
+              await supabase.auth.signOut(); // Force sign out
               setUser(null);
             }
           } else {
             setUser(null);
           }
         } catch (e) {
-          console.error("Critical error in onAuthStateChange:", e);
+          console.error("Critical error in onAuthStateChange, signing out:", e);
+          await supabase.auth.signOut(); // Force sign out on critical error
           setUser(null);
         } finally {
           setLoading(false);

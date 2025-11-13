@@ -134,16 +134,16 @@ const Recipes: React.FC = () => {
                 if (!recipesMap.has(r.producto_terminado_id)) {
                     recipesMap.set(r.producto_terminado_id, {
                         producto_terminado_id: r.producto_terminado_id,
-                        // FIX: The API returns related items as an array. Access the first element to fix type error.
-                        producto_terminado: (r.producto as Item[])[0],
+                        // FIX: Type error indicates Supabase returns the related item in an array. Safely access the first element.
+                        producto_terminado: (Array.isArray(r.producto) ? r.producto[0] : r.producto) as Item,
                         componentes: []
                     });
                 }
                 recipesMap.get(r.producto_terminado_id)?.componentes.push({
                     materia_prima_id: r.materia_prima_id,
                     cantidad_necesaria: r.cantidad_necesaria,
-                    // FIX: The API returns related items as an array. Access the first element to fix type error.
-                    materia_prima: (r.materia_prima as Item[])[0]
+                    // FIX: Type error indicates Supabase returns the related item in an array. Safely access the first element.
+                    materia_prima: (Array.isArray(r.materia_prima) ? r.materia_prima[0] : r.materia_prima) as Item
                 });
             });
             setRecipes(Array.from(recipesMap.values()));

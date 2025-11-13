@@ -16,7 +16,7 @@ import Users from './pages/Users';
 import Recipes from './pages/Recipes';
 import Welcome from './pages/Welcome';
 import { Role } from './types';
-import { isSupabaseConfigured } from './lib/supabaseClient';
+import { isSupabaseConfigured, supabase } from './lib/supabaseClient';
 
 const SupabaseSetup: React.FC = () => {
     const errorMessage = `
@@ -83,6 +83,13 @@ const AppRoutes: React.FC = () => {
         };
     }, [loading]);
 
+    const handleReload = async () => {
+      // Attempt to sign out to clear any lingering session data from storage.
+      await supabase.auth.signOut();
+      // Then, reload the page for a clean start.
+      window.location.reload();
+    };
+
     if (loading) {
         return (
             <div className="flex flex-col justify-center items-center h-screen text-gray-600 bg-gray-50">
@@ -95,7 +102,7 @@ const AppRoutes: React.FC = () => {
                     <div className="text-center mt-6 animate-fade-in">
                         <p className="text-sm text-gray-500">Parece que está tardando más de lo normal.</p>
                         <button
-                            onClick={() => window.location.reload()}
+                            onClick={handleReload}
                             className="mt-4 px-5 py-2.5 text-sm font-medium text-white bg-primary-600 rounded-lg hover:bg-primary-700 focus:outline-none focus:ring-4 focus:ring-primary-300"
                         >
                             Recargar la página

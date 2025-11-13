@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
-import { Item, NewMovement, Role, User, RecipeComponent } from '../types';
+import { Item, Movement, NewMovement, Role, User, RecipeComponent } from '../types';
 
 export const supabaseService = {
   auth: {
@@ -82,13 +82,22 @@ export const supabaseService = {
     async addMovement(movement: NewMovement, userId: string) {
         // The database trigger `on_movement_created` will automatically handle
         // stock updates and validation after a new movement is inserted.
-        const { error } = await supabase.from('movimientos').insert({
+        const payload = {
             item_id: movement.item_id,
             tipo: movement.tipo,
             cantidad: movement.cantidad,
             usuario_id: userId,
-            observacion: movement.observacion
-        });
+            // Only include the observation field if it has a non-empty value.
+            // This prevents sending empty strings, which might conflict with DB constraints
+            // that expect NULL instead, thus avoiding potential 400 Bad Request errors.
+            ...(movement.observacion && { observacion: movement.observacion })
+        };
+        const { error } = await supabase.from('movimientos').insert(payload);
+        return { error: error ? error.message : null };
+    },
+
+    async addMovements(movements: Omit<Movement, 'id' | 'fecha'>[]) {
+        const { error } = await supabase.from('movimientos').insert(movements);
         return { error: error ? error.message : null };
     },
 

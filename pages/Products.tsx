@@ -3,7 +3,15 @@ import { supabaseService } from '../services/supabaseService';
 import { Item, ItemType } from '../types';
 
 const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<Item>) => void; onCancel: () => void }> = ({ item, onSave, onCancel }) => {
-    const [formData, setFormData] = useState<Partial<Item>>(item || {});
+    const [formData, setFormData] = useState<Partial<Item>>(() => {
+        // For new items, provide default values.
+        // For existing items, passed 'item' properties will override these.
+        const defaults: Partial<Item> = {
+            unidad: 'un',
+        };
+        return { ...defaults, ...(item || {}) };
+    });
+
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
@@ -17,6 +25,11 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        // Client-side validation to ensure all required fields are filled before submitting.
+        if (!formData.codigo || !formData.descripcion || !formData.tipo || !formData.unidad || formData.stock_minimo == null || formData.valor == null) {
+            alert("Por favor, complete todos los campos obligatorios.");
+            return;
+        }
         onSave(formData);
     };
 
@@ -46,7 +59,7 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
                         </div>
                         <div>
                             <label htmlFor="unidad" className="block text-sm font-medium">Unidad</label>
-                            <input type="text" name="unidad" id="unidad" value={formData.unidad || 'un'} onChange={handleChange} required className={inputStyle} />
+                            <input type="text" name="unidad" id="unidad" value={formData.unidad || ''} onChange={handleChange} required className={inputStyle} />
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
@@ -95,13 +108,17 @@ const Products: React.FC = () => {
     }, [fetchItems]);
     
     const handleSave = async (item: Partial<Item>) => {
-        if (item.id) { // Update
-            await supabaseService.data.updateItem(item as Item);
-        } else { // Create
-            await supabaseService.data.addItem(item as Omit<Item, 'id' | 'stock_actual'>);
+        const result = item.id
+            ? await supabaseService.data.updateItem(item as Item)
+            : await supabaseService.data.addItem(item as Omit<Item, 'id' | 'stock_actual'>);
+
+        if (result.error) {
+            console.error("Error al guardar el producto:", result.error);
+            alert(`No se pudo guardar el producto: ${result.error.message}`);
+        } else {
+            setEditingItem(null);
+            fetchItems();
         }
-        setEditingItem(null);
-        fetchItems();
     };
 
     const handleDelete = async (id: number) => {
