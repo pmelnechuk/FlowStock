@@ -16,8 +16,8 @@ const Header: React.FC = () => {
         {user ? (
           <div className="flex items-center space-x-3">
             <div className="text-right">
-              <p className="font-semibold text-gray-700">{user.nombre}</p>
-              <p className="text-sm text-gray-500">{user.rol}</p>
+              <p className="font-semibold text-gray-700">{user.nombre_completo}</p>
+              <p className="text-sm text-gray-500">{user.role}</p>
             </div>
             <button
               onClick={signOut}

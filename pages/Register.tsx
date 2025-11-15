@@ -7,7 +7,6 @@ import { EyeIcon, EyeOffIcon, ArrowLeftIcon } from '../components/icons';
 
 const Register: React.FC = () => {
   const [nombre, setNombre] = useState('');
-  const [usuario, setUsuario] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -39,17 +38,16 @@ const Register: React.FC = () => {
     setLoading(true);
     const { error: signUpError } = await supabaseService.auth.signUp(
         nombre.trim(), 
-        usuario.trim(), 
-        trimmedPassword, 
-        email.trim()
+        email.trim(),
+        trimmedPassword
     );
     setLoading(false);
 
     if (signUpError) {
       setError(signUpError);
     } else {
-      setSuccess('¡Cuenta creada! Un administrador revisará tu solicitud y la activará pronto.');
-      setTimeout(() => navigate('/login'), 4000); // Redirect to login after 4 seconds
+      setSuccess('¡Cuenta creada! Un administrador revisará tu solicitud y la activará pronto. Verifica tu correo electrónico para confirmar la cuenta.');
+      setTimeout(() => navigate('/login'), 5000); // Redirect to login after 5 seconds
     }
   };
 
@@ -78,19 +76,7 @@ const Register: React.FC = () => {
               value={nombre}
               onChange={(e) => setNombre(e.target.value)}
               required
-              className="w-full px-3 py-2 mt-1 text-gray-900 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
-            />
-          </div>
-          <div>
-            <label htmlFor="usuario" className="block text-sm font-medium text-gray-700">
-              Nombre de Usuario
-            </label>
-             <input
-              id="usuario"
-              type="text"
-              value={usuario}
-              onChange={(e) => setUsuario(e.target.value)}
-              required
+              autoComplete="name"
               className="w-full px-3 py-2 mt-1 text-gray-900 bg-white border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-primary-500 focus:border-primary-500"
             />
           </div>

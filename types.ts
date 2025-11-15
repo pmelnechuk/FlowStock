@@ -4,13 +4,17 @@ export enum Role {
   SUPERVISOR = 'SUPERVISOR',
 }
 
+export enum UserStatus {
+  ACTIVO = 'ACTIVO',
+  INACTIVO = 'INACTIVO',
+}
+
 export interface User {
-  id: string;
+  id: string; // This is now the auth.users.id
   email: string;
-  nombre: string;
-  usuario: string;
-  rol: Role;
-  activo: boolean;
+  nombre_completo: string;
+  role: Role;
+  status: UserStatus;
 }
 
 export enum ItemType {
@@ -19,43 +23,51 @@ export enum ItemType {
 }
 
 export interface Item {
-  id: number;
+  id: string;
   codigo: string;
   descripcion: string;
   tipo: ItemType;
-  unidad: string;
+  unidad_medida: string;
   stock_minimo: number;
   stock_actual: number;
-  valor: number;
+  valor_unitario: number;
 }
 
 export enum MovementType {
-  ENT = 'ENT', // Entrada
-  SAL = 'SAL', // Salida
-  AJU = 'AJU', // Ajuste
+  PRODUCCION = 'PRODUCCION',
+  ENTRADA_MP = 'ENTRADA_MP',
+  SALIDA_PT = 'SALIDA_PT',
+  AJUSTE = 'AJUSTE',
+  CONSUMO_MP = 'CONSUMO_MP',
 }
 
 export interface Movement {
-  id: number;
-  fecha: string;
+  id: string;
+  created_at: string;
   tipo: MovementType;
-  item_id: number;
+  item_id: string;
   cantidad: number;
   usuario_id: string;
-  observacion?: string;
+  observaciones?: string;
+  stock_anterior: number;
+  stock_nuevo: number;
+  cantidad_producida?: number;
+  componentes?: { mp_id: string; mp_codigo: string; cantidad_consumida: number }[];
 }
 
-// For creating new movements, some fields are omitted
-export type NewMovement = Omit<Movement, 'id' | 'fecha' | 'usuario_id'>;
+export type NewMovement = Omit<Movement, 'id' | 'created_at' | 'usuario_id' | 'stock_anterior' | 'stock_nuevo'>;
 
 export interface RecipeComponent {
-  id?: number;
-  materia_prima_id: number;
-  cantidad_necesaria: number;
+  materia_prima_id: string;
+  cantidad_requerida: number;
 }
 
+// High-level object representing a recipe for a PT, used in the app
 export interface Recipe {
-  producto_terminado_id: number;
-  producto_terminado?: Item;
+  // A "recipe" is now identified by the finished product it creates.
+  producto_terminado_id: string; 
+  // We can enrich this with the full item object after fetching
+  producto_terminado?: Item; 
+  // The list of raw materials and quantities needed
   componentes: (RecipeComponent & { materia_prima?: Item })[];
 }

@@ -43,7 +43,7 @@ const Dashboard: React.FC = () => {
     const totalMP = items.filter(i => i.tipo === ItemType.MP).length;
     const totalPT = items.filter(i => i.tipo === ItemType.PT).length;
     const lowStockItems = items.filter(i => i.stock_actual < i.stock_minimo);
-    const totalValue = items.reduce((sum, item) => sum + (item.stock_actual * (item.valor || 0)), 0);
+    const totalValue = items.reduce((sum, item) => sum + (item.stock_actual * (item.valor_unitario || 0)), 0);
     return { totalItems, totalMP, totalPT, lowStockItems, totalValue };
   }, [items]);
   

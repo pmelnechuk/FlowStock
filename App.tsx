@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 // FIX: Changed react-router-dom import to fix module resolution error.
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
@@ -65,8 +66,28 @@ const PrivateRoutes: React.FC = () => {
 };
 
 const AppRoutes: React.FC = () => {
-    const { loading, user } = useAuth();
+    const { loading, user, signOut } = useAuth();
     const [showReload, setShowReload] = useState(false);
+    const isInitialVisibility = useRef(true);
+
+    useEffect(() => {
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible') {
+                if (isInitialVisibility.current) {
+                    isInitialVisibility.current = false;
+                    return;
+                }
+                // When returning to the tab, sign out to clear session and trigger a reload.
+                signOut();
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [signOut]);
 
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout>;
@@ -124,17 +145,17 @@ const AppRoutes: React.FC = () => {
             <Route element={<PrivateRoutes />}>
                 <Route path="/" element={<Dashboard />} />
                 <Route path="productos" element={
-                    <ProtectedRoute roles={[Role.ADMIN]}>
+                    <ProtectedRoute roles={[Role.ADMIN, Role.SUPERVISOR]}>
                         <Products />
                     </ProtectedRoute>
                 } />
                  <Route path="recetas" element={
-                    <ProtectedRoute roles={[Role.ADMIN, Role.OPERARIO, Role.SUPERVISOR]}>
+                    <ProtectedRoute roles={[Role.ADMIN, Role.SUPERVISOR]}>
                         <Recipes />
                     </ProtectedRoute>
                 } />
                 <Route path="movimientos" element={
-                    <ProtectedRoute roles={[Role.ADMIN, Role.OPERARIO]}>
+                    <ProtectedRoute roles={[Role.ADMIN, Role.OPERARIO, Role.SUPERVISOR]}>
                         <Movements />
                     </ProtectedRoute>
                 } />

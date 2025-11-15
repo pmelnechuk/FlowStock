@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabaseClient';
-import { Item, Movement, NewMovement, Role, User, RecipeComponent } from '../types';
+import { Item, Movement, NewMovement, Role, User, Recipe, RecipeComponent } from '../types';
 
 export const supabaseService = {
   auth: {
@@ -23,18 +23,15 @@ export const supabaseService = {
       await supabase.auth.signOut();
     },
 
-    async signUp(nombre: string, usuario: string, contrasena: string, email: string) {
-      // We assume a database trigger is set up on auth.users to create a
-      // corresponding public.usuarios profile using the metadata.
+    async signUp(nombre_completo: string, email: string, contrasena: string) {
+      // The sign-up process only creates the auth.users entry.
+      // A database trigger (handle_new_user) is expected to create the corresponding public.usuarios profile.
       const { error } = await supabase.auth.signUp({
         email: email,
         password: contrasena,
         options: {
           data: {
-            nombre: nombre,
-            usuario: usuario,
-            rol: Role.OPERARIO, // New users are operarios by default
-            activo: false,     // Admin must activate the account
+            nombre_completo: nombre_completo,
           },
         },
       });
@@ -43,7 +40,6 @@ export const supabaseService = {
 
     async sendPasswordResetEmail(email: string) {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        // App uses HashRouter, so the path needs to be prefixed accordingly.
         redirectTo: `${window.location.origin}/#/reset-password`,
       });
       return { error: error ? error.message : null };
@@ -54,9 +50,8 @@ export const supabaseService = {
       return supabase.from('items').select('*').order('descripcion', { ascending: true });
     },
 
-    async addItem(item: Omit<Item, 'id' | 'stock_actual'>) {
-      // New items start with 0 stock, which can be updated with an "Entrada" movement.
-      return supabase.from('items').insert([{ ...item, stock_actual: 0 }]);
+    async addItem(item: Omit<Item, 'id' | 'stock_actual'>, authUserId: string) {
+      return supabase.from('items').insert([{ ...item, stock_actual: 0, created_by: authUserId }]).select();
     },
     
     async updateItem(item: Partial<Item>) {
@@ -65,93 +60,124 @@ export const supabaseService = {
       return supabase.from('items').update(itemData).eq('id', id);
     },
 
-    async deleteItem(id: number) {
+    async deleteItem(id: string) {
       return supabase.from('items').delete().eq('id', id);
     },
 
     async getMovements() {
-      // The join on `usuarios` is problematic because the FK from `movimientos` is to `auth.users`, not `public.usuarios`.
-      // Supabase cannot automatically infer this join. We will fetch users separately and join on the client.
       return supabase
         .from('movimientos')
-        .select('*, item:items(*)') // Fetches movements and their related item.
-        .order('fecha', { ascending: false })
+        .select('*, item:items(*)')
+        .order('created_at', { ascending: false })
         .limit(100);
     },
 
-    async addMovement(movement: NewMovement, userId: string) {
-        // The database trigger `on_movement_created` will automatically handle
-        // stock updates and validation after a new movement is inserted.
-        const payload = {
-            item_id: movement.item_id,
-            tipo: movement.tipo,
-            cantidad: movement.cantidad,
-            usuario_id: userId,
-            // Only include the observation field if it has a non-empty value.
-            // This prevents sending empty strings, which might conflict with DB constraints
-            // that expect NULL instead, thus avoiding potential 400 Bad Request errors.
-            ...(movement.observacion && { observacion: movement.observacion })
+    async addMovement(movement: NewMovement, authUserId: string) {
+        const { data: product, error: productError } = await supabase
+            .from('items')
+            .select('stock_actual')
+            .eq('id', movement.item_id)
+            .single();
+
+        if (productError || !product) {
+            return { error: 'Producto no encontrado para registrar el movimiento.' };
+        }
+        
+        const stock_anterior = product.stock_actual;
+        const stock_nuevo = stock_anterior + movement.cantidad;
+
+        const movementPayload: Omit<Movement, 'id' | 'created_at'> = {
+            ...movement,
+            stock_anterior,
+            stock_nuevo,
+            usuario_id: authUserId,
         };
-        const { error } = await supabase.from('movimientos').insert(payload);
-        return { error: error ? error.message : null };
+
+        const { error: insertError } = await supabase.from('movimientos').insert(movementPayload);
+        if (insertError) {
+            return { error: `No se pudo registrar el movimiento: ${insertError.message}` };
+        }
+
+        const { error: updateError } = await supabase
+            .from('items')
+            .update({ stock_actual: stock_nuevo })
+            .eq('id', movement.item_id);
+
+        if (updateError) {
+            // This is a problematic state, the movement was created but stock not updated.
+            // A transaction (RPC) would prevent this.
+            console.error("CRITICAL: Movement created but stock update failed.", updateError);
+            return { error: `Movimiento registrado, pero falló la actualización de stock: ${updateError.message}` };
+        }
+
+        return { error: null };
     },
 
-    async addMovements(movements: Omit<Movement, 'id' | 'fecha'>[]) {
-        const { error } = await supabase.from('movimientos').insert(movements);
-        return { error: error ? error.message : null };
+    async addMovements(movements: NewMovement[], authUserId: string) {
+        // This is not atomic without an RPC. It processes movements one by one.
+        for (const mov of movements) {
+            const { error } = await this.addMovement(mov, authUserId);
+            if (error) {
+                // If one movement fails, stop and report. Some might have succeeded already.
+                return { error: `Error en lote de movimientos: ${error}` };
+            }
+        }
+        return { error: null };
     },
 
     async getUsers() {
-      return supabase.from('usuarios').select('*').order('nombre', { ascending: true });
+      return supabase.from('usuarios').select('*').order('nombre_completo', { ascending: true });
     },
 
-    async updateUser(user: User) {
-      const { id, nombre, usuario, rol, activo } = user;
-      // We only update fields managed in the UI, avoiding changes to email/id.
-      const updatePayload = {
-        nombre,
-        usuario,
-        rol,
-        activo
-      };
-      return supabase.from('usuarios').update(updatePayload).eq('id', id);
+    async updateUser(user: Partial<User>) {
+        const { id, ...updateData } = user;
+        if (!id) return { data: null, error: { message: 'User ID is required for update.' } as any };
+        
+        const allowedUpdates: (keyof typeof updateData)[] = ['nombre_completo', 'role', 'status'];
+        const updatePayload: Partial<User> = {};
+        for (const key of allowedUpdates) {
+            if (key in updateData) {
+                (updatePayload as any)[key] = updateData[key];
+            }
+        }
+
+        return supabase.from('usuarios').update(updatePayload).eq('id', id);
     },
 
     async getRecipes() {
-        return supabase
-            .from('recetas')
-            .select(`
-                producto_terminado_id,
-                materia_prima_id,
-                cantidad_necesaria,
-                producto:producto_terminado_id (*),
-                materia_prima:materia_prima_id (*)
-            `)
-            .order('producto_terminado_id');
+        // FIX: Only fetch recipes that have at least one component, preventing "phantom" recipes from appearing.
+        return supabase.from('v_recetas_completas').select('*').gt('total_componentes', 0);
     },
 
-    async deleteRecipe(producto_terminado_id: number) {
-        return supabase
-            .from('recetas')
-            .delete()
-            .eq('producto_terminado_id', producto_terminado_id);
+    async deleteRecipe(producto_terminado_id: string) {
+        return supabase.from('recetas').delete().eq('producto_terminado_id', producto_terminado_id);
     },
 
-    async upsertRecipe(producto_terminado_id: number, componentes: RecipeComponent[]) {
-        // This is a "delete and replace" strategy, which is simple and effective for managing recipe components.
-        // It's wrapped in a transaction via an RPC call for atomicity.
-        const { error: deleteError } = await this.deleteRecipe(producto_terminado_id);
-        if (deleteError) return { error: deleteError };
+    async upsertRecipe(producto_terminado_id: string, componentes: RecipeComponent[], authUserId: string) {
+        // This should be a transaction, but we simulate it:
+        // 1. Delete all existing components for the recipe (identified by the finished product)
+        const { error: deleteError } = await supabase.from('recetas').delete().eq('producto_terminado_id', producto_terminado_id);
+        if (deleteError) {
+            console.error("Error deleting old recipe components:", deleteError);
+            return { error: deleteError };
+        }
 
-        if (componentes.length === 0) return { error: null };
+        // 2. Insert the new components if there are any
+        if (componentes.length > 0) {
+            const recipeItems = componentes.map(comp => ({
+                producto_terminado_id: producto_terminado_id,
+                materia_prima_id: comp.materia_prima_id,
+                cantidad_requerida: comp.cantidad_requerida,
+                created_by: authUserId
+            }));
+            const { error: insertItemsError } = await supabase.from('recetas').insert(recipeItems);
+            if (insertItemsError) {
+                console.error("Error inserting new recipe components:", insertItemsError);
+                return { error: insertItemsError };
+            }
+        }
 
-        const recipeItems = componentes.map(comp => ({
-            producto_terminado_id,
-            materia_prima_id: comp.materia_prima_id,
-            cantidad_necesaria: comp.cantidad_necesaria
-        }));
-
-        return supabase.from('recetas').insert(recipeItems);
+        return { error: null };
     },
   }
 };

@@ -3,9 +3,7 @@ import { supabaseService } from '../services/supabaseService';
 import { Item, Movement, MovementType, User, NewMovement, Recipe, ItemType } from '../types';
 import { useAuth } from '../hooks/useAuth';
 
-type ConceptualMovementType = 'PRODUCCION_PT' | 'ENTRADA_MP' | 'SALIDA_PT' | 'AJUSTE';
-type FilterableMovementType = ConceptualMovementType | 'CONSUMO_MP';
-
+type ConceptualMovementType = 'PRODUCCION' | 'ENTRADA_MP' | 'SALIDA_PT' | 'AJUSTE';
 
 const Toast: React.FC<{ message: string; type: 'error' | 'success'; onClose: () => void }> = ({ message, type, onClose }) => {
     const bgColor = type === 'error' ? 'bg-red-500' : 'bg-green-500';
@@ -26,17 +24,17 @@ const MovementForm: React.FC<{
     recipes: Recipe[];
     onSave: (movementData: {
         conceptualType: ConceptualMovementType,
-        item_id: number;
+        item_id: string;
         cantidad: number;
-        observacion?: string;
+        observaciones?: string;
     }) => Promise<boolean>; // Returns true on success
     onCancel: () => void;
 }> = ({ items, recipes, onSave, onCancel }) => {
     
-    const [conceptualType, setConceptualType] = useState<ConceptualMovementType>('PRODUCCION_PT');
+    const [conceptualType, setConceptualType] = useState<ConceptualMovementType>('PRODUCCION');
     const [itemId, setItemId] = useState<string>('');
     const [cantidad, setCantidad] = useState<string>('1');
-    const [observacion, setObservacion] = useState('');
+    const [observaciones, setObservaciones] = useState('');
     const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     
@@ -46,7 +44,7 @@ const MovementForm: React.FC<{
         switch (conceptualType) {
             case 'ENTRADA_MP':
                 return items.filter(i => i.tipo === ItemType.MP);
-            case 'PRODUCCION_PT':
+            case 'PRODUCCION':
             case 'SALIDA_PT':
                 return items.filter(i => i.tipo === ItemType.PT);
             case 'AJUSTE':
@@ -56,7 +54,6 @@ const MovementForm: React.FC<{
         }
     }, [conceptualType, items]);
 
-    // Reset item selection when movement type changes
     useEffect(() => {
         setItemId('');
     }, [conceptualType]);
@@ -65,7 +62,7 @@ const MovementForm: React.FC<{
         e.preventDefault();
         setError(null);
         
-        const numCantidad = parseInt(cantidad, 10);
+        const numCantidad = parseFloat(cantidad);
 
         if (!itemId || !conceptualType || cantidad === '' || isNaN(numCantidad) || (!isAjuste && numCantidad <= 0)) {
             setError("Por favor, complete todos los campos requeridos con valores válidos.");
@@ -75,14 +72,14 @@ const MovementForm: React.FC<{
         setSubmitting(true);
         const success = await onSave({
             conceptualType,
-            item_id: Number(itemId),
+            item_id: itemId,
             cantidad: numCantidad,
-            observacion
+            observaciones
         });
         setSubmitting(false);
 
         if (success) {
-            onCancel(); // Close form on success
+            onCancel();
         }
     };
 
@@ -102,7 +99,7 @@ const MovementForm: React.FC<{
                             required
                             className={inputStyle}
                         >
-                            <option value="PRODUCCION_PT">Producción de Producto Terminado</option>
+                            <option value="PRODUCCION">Producción de Producto Terminado</option>
                             <option value="ENTRADA_MP">Entrada de Materia Prima</option>
                             <option value="SALIDA_PT">Salida de Producto Terminado</option>
                             <option value="AJUSTE">Ajuste (Setear Stock)</option>
@@ -129,22 +126,16 @@ const MovementForm: React.FC<{
                             id="cantidad"
                             value={cantidad}
                             onChange={(e) => setCantidad(e.target.value)}
-                            min={isAjuste ? "0" : "1"}
-                            step="1"
-                            onKeyDown={(e) => {
-                                // Prevent decimal points, 'e', and other non-integer keys
-                                if (['.', ',', 'e', 'E', '+', '-'].includes(e.key)) {
-                                    e.preventDefault();
-                                }
-                            }}
+                            min={isAjuste ? "0" : "0.001"}
+                            step="0.001"
                             required
                             className={inputStyle}
                         />
                     </div>
                     
                     <div>
-                        <label htmlFor="observacion" className="block text-sm font-medium">Observación (Opcional)</label>
-                        <textarea name="observacion" id="observacion" value={observacion} onChange={(e) => setObservacion(e.target.value)} rows={2} className={inputStyle}></textarea>
+                        <label htmlFor="observaciones" className="block text-sm font-medium">Observación (Opcional)</label>
+                        <textarea name="observaciones" id="observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} rows={2} className={inputStyle}></textarea>
                     </div>
 
                     {error && <p className="text-sm text-red-600">{error}</p>}
@@ -198,24 +189,29 @@ const Movements: React.FC = () => {
             supabaseService.data.getRecipes()
         ]);
         
-        if (movementsRes.data) setMovements(movementsRes.data as (Movement & { item: Item })[]);
-        if (itemsRes.data) setItems(itemsRes.data);
-        if (usersRes.data) setUsers(usersRes.data);
+        if (movementsRes.data) {
+            const validMovements = (movementsRes.data as any[]).filter(
+                (m): m is Movement & { item: Item } => m.item && typeof m.item === 'object' && m.item.id
+            );
+            setMovements(validMovements);
+        }
+        
+        const newItems = (itemsRes.data as Item[]) || [];
+        setItems(newItems);
+        const localItemsMap = new Map(newItems.map(item => [item.id, item]));
+
+        if (usersRes.data) setUsers(usersRes.data as User[]);
         if (recipesRes.data) {
-            const groupedRecipes = new Map<number, Recipe>();
-            recipesRes.data.forEach(r => {
-                if (!groupedRecipes.has(r.producto_terminado_id)) {
-                    groupedRecipes.set(r.producto_terminado_id, {
-                        producto_terminado_id: r.producto_terminado_id,
-                        componentes: []
-                    });
-                }
-                groupedRecipes.get(r.producto_terminado_id)?.componentes.push({
-                    materia_prima_id: r.materia_prima_id,
-                    cantidad_necesaria: r.cantidad_necesaria
-                });
-            });
-            setRecipes(Array.from(groupedRecipes.values()));
+            const fetchedRecipes: Recipe[] = (recipesRes.data as any[]).map((r: any) => ({
+                producto_terminado_id: r.producto_terminado_id,
+                producto_terminado: localItemsMap.get(r.producto_terminado_id),
+                componentes: r.componentes?.filter((c: any) => c && c.mp_id).map((c: any) => ({
+                    materia_prima_id: c.mp_id,
+                    cantidad_requerida: c.cantidad_requerida,
+                    materia_prima: localItemsMap.get(c.mp_id)
+                })) || []
+            }));
+            setRecipes(fetchedRecipes);
         }
 
         setLoading(false);
@@ -225,27 +221,38 @@ const Movements: React.FC = () => {
         fetchAllData();
     }, [fetchAllData]);
 
-    const handleSave = async (data: { conceptualType: ConceptualMovementType; item_id: number; cantidad: number; observacion?: string }): Promise<boolean> => {
-        if (!currentUser) return false;
+    const handleSave = async (data: { conceptualType: ConceptualMovementType; item_id: string; cantidad: number; observaciones?: string }): Promise<boolean> => {
+        if (!currentUser?.id) return false;
 
-        const { conceptualType, item_id, cantidad, observacion } = data;
+        const { conceptualType, item_id, cantidad, observaciones } = data;
         const selectedItem = itemsMap.get(item_id);
         if (!selectedItem) {
             setToast({ message: "Error: Producto seleccionado no encontrado.", type: 'error' });
             return false;
         }
 
-        if (conceptualType === 'PRODUCCION_PT') {
+        if (conceptualType === 'PRODUCCION') {
             const recipe = recipesMap.get(item_id);
-            if (!recipe) {
+            if (!recipe || !recipe.componentes || recipe.componentes.length === 0) {
                 setToast({ message: `No existe una receta para el producto '${selectedItem.codigo}'.`, type: 'error' });
                 return false;
             }
 
             const insufficientMaterials: string[] = [];
+            const consumedComponentsForLog: Movement['componentes'] = [];
+
             for (const component of recipe.componentes) {
                 const mpItem = itemsMap.get(component.materia_prima_id);
-                const requiredAmount = cantidad * component.cantidad_necesaria;
+                const requiredAmount = cantidad * component.cantidad_requerida;
+                
+                if (mpItem) {
+                     consumedComponentsForLog.push({
+                        mp_id: mpItem.id,
+                        mp_codigo: mpItem.codigo,
+                        cantidad_consumida: requiredAmount
+                    });
+                }
+               
                 if (!mpItem || mpItem.stock_actual < requiredAmount) {
                     const stock = mpItem ? mpItem.stock_actual : 0;
                     const itemName = mpItem ? `${mpItem.codigo} - ${mpItem.descripcion}` : `ID: ${component.materia_prima_id}`;
@@ -257,29 +264,29 @@ const Movements: React.FC = () => {
                 return false;
             }
 
-            const movementsToInsert: Omit<Movement, 'id' | 'fecha'>[] = [];
+            const movementsToInsert: NewMovement[] = [];
             movementsToInsert.push({
                 item_id,
-                tipo: MovementType.ENT,
+                tipo: MovementType.PRODUCCION,
                 cantidad,
-                usuario_id: currentUser.id,
-                ...(observacion && { observacion })
+                cantidad_producida: cantidad,
+                componentes: consumedComponentsForLog,
+                ...(observaciones && { observaciones })
             });
 
             for (const component of recipe.componentes) {
-                const consumptionObservation = `Salida automática por producción de ${selectedItem.codigo}.` + (observacion ? ` "${observacion}"` : '');
+                const consumptionObservation = `Consumo por producción de ${selectedItem.codigo}. ${observaciones || ''}`.trim();
                 movementsToInsert.push({
                     item_id: component.materia_prima_id,
-                    tipo: MovementType.SAL,
-                    cantidad: cantidad * component.cantidad_necesaria,
-                    usuario_id: currentUser.id,
-                    observacion: consumptionObservation,
+                    tipo: MovementType.CONSUMO_MP,
+                    cantidad: -(cantidad * component.cantidad_requerida),
+                    observaciones: consumptionObservation,
                 });
             }
 
-            const { error } = await supabaseService.data.addMovements(movementsToInsert);
+            const { error } = await supabaseService.data.addMovements(movementsToInsert, currentUser.id);
             if (error) {
-                 setToast({ message: `Error al registrar el lote de movimientos: ${error}`, type: 'error' });
+                 setToast({ message: `Error al registrar la producción: ${error}`, type: 'error' });
                  return false;
             }
         } else if (conceptualType === 'AJUSTE') {
@@ -289,17 +296,16 @@ const Movements: React.FC = () => {
 
             if (adjustmentAmount === 0) {
                 setToast({ message: `El stock del producto '${selectedItem.codigo}' ya es de ${targetStock}. No se realizó ningún ajuste.`, type: 'success' });
-                setIsFormOpen(false);
                 return true;
             }
             
-            const finalObservation = `Ajuste de stock de ${currentStock} a ${targetStock}. ${observacion || ''}`.trim();
+            const finalObservation = `Ajuste de stock de ${currentStock} a ${targetStock}. ${observaciones || ''}`.trim();
 
             const newMovement: NewMovement = {
                 item_id,
-                tipo: MovementType.AJU,
+                tipo: MovementType.AJUSTE,
                 cantidad: adjustmentAmount,
-                observacion: finalObservation
+                observaciones: finalObservation
             };
 
             const result = await supabaseService.data.addMovement(newMovement, currentUser.id);
@@ -308,22 +314,24 @@ const Movements: React.FC = () => {
                 return false;
             }
         } else {
-            if (conceptualType === 'SALIDA_PT' && selectedItem.stock_actual < cantidad) {
-                setToast({ message: `Stock insuficiente para '${selectedItem.codigo}'.\nStock actual: ${selectedItem.stock_actual}, se intenta retirar: ${cantidad}.`, type: 'error' });
-                return false;
-            }
-
             let dbMovementType: MovementType;
+            let quantityModifier = 1;
+
             if (conceptualType === 'ENTRADA_MP') {
-                dbMovementType = MovementType.ENT;
+                dbMovementType = MovementType.ENTRADA_MP;
             } else if (conceptualType === 'SALIDA_PT') {
-                dbMovementType = MovementType.SAL;
+                if (selectedItem.stock_actual < cantidad) {
+                    setToast({ message: `Stock insuficiente para '${selectedItem.codigo}'.\nStock actual: ${selectedItem.stock_actual}, se intenta retirar: ${cantidad}.`, type: 'error' });
+                    return false;
+                }
+                dbMovementType = MovementType.SALIDA_PT;
+                quantityModifier = -1;
             } else {
                 setToast({ message: "Tipo de movimiento conceptual no válido.", type: 'error' });
                 return false;
             }
 
-            const newMovement: NewMovement = { item_id, tipo: dbMovementType, cantidad, observacion };
+            const newMovement: NewMovement = { item_id, tipo: dbMovementType, cantidad: cantidad * quantityModifier, observaciones };
             const result = await supabaseService.data.addMovement(newMovement, currentUser.id);
             if (result.error) {
                 setToast({ message: `Error al registrar: ${result.error}`, type: 'error' });
@@ -331,35 +339,18 @@ const Movements: React.FC = () => {
             }
         }
         
-        setIsFormOpen(false);
         fetchAllData();
         return true;
     };
 
-    const usersMap = useMemo(() => new Map(users.map(u => [u.id, u.nombre])), [users]);
+    const usersMap = useMemo(() => new Map(users.map(u => [u.id, u.nombre_completo])), [users]);
     
-    const getConceptualMovementType = (mov: Movement & { item: Item }): FilterableMovementType => {
-        if (mov.tipo === MovementType.SAL && mov.observacion?.startsWith('Salida automática por producción')) {
-            return 'CONSUMO_MP';
-        }
-        switch (mov.tipo) {
-            case MovementType.ENT:
-                return mov.item.tipo === ItemType.PT ? 'PRODUCCION_PT' : 'ENTRADA_MP';
-            case MovementType.SAL:
-                return 'SALIDA_PT';
-            case MovementType.AJU:
-                return 'AJUSTE';
-            default:
-                return 'AJUSTE'; // Fallback
-        }
-    };
-    
-    const movementTypeConfig: Record<FilterableMovementType, { text: string; className: string }> = {
-        'PRODUCCION_PT': { text: 'Producción PT', className: 'bg-purple-100 text-purple-800' },
-        'ENTRADA_MP': { text: 'Entrada MP', className: 'bg-green-100 text-green-800' },
-        'SALIDA_PT': { text: 'Salida PT', className: 'bg-red-100 text-red-800' },
-        'CONSUMO_MP': { text: 'Consumo MP', className: 'bg-yellow-100 text-yellow-800' },
-        'AJUSTE': { text: 'Ajuste', className: 'bg-blue-100 text-blue-800' },
+    const movementTypeConfig: Record<string, { text: string; className: string }> = {
+        [MovementType.PRODUCCION]: { text: 'Producción', className: 'bg-purple-100 text-purple-800' },
+        [MovementType.ENTRADA_MP]: { text: 'Entrada MP', className: 'bg-green-100 text-green-800' },
+        [MovementType.SALIDA_PT]: { text: 'Salida PT', className: 'bg-red-100 text-red-800' },
+        [MovementType.AJUSTE]: { text: 'Ajuste', className: 'bg-blue-100 text-blue-800' },
+        [MovementType.CONSUMO_MP]: { text: 'Consumo MP', className: 'bg-yellow-100 text-yellow-800' },
     };
 
     const handleFilterChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
@@ -379,10 +370,10 @@ const Movements: React.FC = () => {
 
     const filteredMovements = useMemo(() => {
         return movements.filter(mov => {
-            if (filters.itemId && mov.item_id !== parseInt(filters.itemId, 10)) return false;
+            if (filters.itemId && mov.item_id !== filters.itemId) return false;
             if (filters.userId && mov.usuario_id !== filters.userId) return false;
             
-            const movDate = new Date(mov.fecha);
+            const movDate = new Date(mov.created_at);
             if (filters.startDate) {
                 const startDate = new Date(filters.startDate);
                 startDate.setHours(0, 0, 0, 0);
@@ -394,7 +385,7 @@ const Movements: React.FC = () => {
                 if (movDate > endDate) return false;
             }
 
-            if (filters.movementType && getConceptualMovementType(mov) !== filters.movementType) return false;
+            if (filters.movementType && mov.tipo !== filters.movementType) return false;
 
             return true;
         });
@@ -404,19 +395,11 @@ const Movements: React.FC = () => {
     const filterLabelStyle = "block text-sm font-medium text-gray-700 mb-1";
 
     const getAmountDisplay = (mov: Movement): { text: string; className: string } => {
-        switch (mov.tipo) {
-            case MovementType.ENT:
-                return { text: `+${mov.cantidad}`, className: 'text-green-600' };
-            case MovementType.SAL:
-                return { text: `-${mov.cantidad}`, className: 'text-red-600' };
-            case MovementType.AJU:
-                if (mov.cantidad >= 0) {
-                    return { text: `+${mov.cantidad}`, className: 'text-green-600' };
-                } else {
-                    return { text: `${mov.cantidad}`, className: 'text-red-600' };
-                }
-            default:
-                return { text: `${mov.cantidad}`, className: 'text-gray-800' };
+        const cantidad = mov.cantidad ?? 0;
+        if (cantidad > 0) {
+            return { text: `+${cantidad.toLocaleString()}`, className: 'text-green-600' };
+        } else {
+            return { text: `${cantidad.toLocaleString()}`, className: 'text-red-600' };
         }
     };
 
@@ -475,7 +458,7 @@ const Movements: React.FC = () => {
                             <label htmlFor="userId" className={filterLabelStyle}>Usuario</label>
                             <select name="userId" value={filters.userId} onChange={handleFilterChange} className={filterInputStyle}>
                                 <option value="">Todos</option>
-                                {users.map(user => <option key={user.id} value={user.id}>{user.nombre}</option>)}
+                                {users.map(user => <option key={user.id} value={user.id}>{user.nombre_completo}</option>)}
                             </select>
                         </div>
                     </div>
@@ -494,6 +477,7 @@ const Movements: React.FC = () => {
                             <th className="px-6 py-3">Producto</th>
                             <th className="px-6 py-3 text-center">Tipo de Operación</th>
                             <th className="px-6 py-3 text-center">Cantidad</th>
+                            <th className="px-6 py-3 text-center">Stock Resultante</th>
                             <th className="px-6 py-3">Usuario</th>
                             <th className="px-6 py-3">Observación</th>
                         </tr>
@@ -501,31 +485,32 @@ const Movements: React.FC = () => {
                     <tbody>
                         {filteredMovements.length === 0 ? (
                              <tr>
-                                <td colSpan={6} className="text-center py-4 text-gray-500">
+                                <td colSpan={7} className="text-center py-4 text-gray-500">
                                     No se encontraron movimientos con los filtros aplicados.
                                 </td>
                             </tr>
                         ) : (
                             filteredMovements.map(mov => {
-                                const badge = movementTypeConfig[getConceptualMovementType(mov)];
+                                const badge = movementTypeConfig[mov.tipo as MovementType];
                                 const amountDisplay = getAmountDisplay(mov);
                                 return (
                                     <tr key={mov.id} className="bg-white border-b">
-                                        <td className="px-6 py-4">{new Date(mov.fecha).toLocaleString('es-ES')}</td>
+                                        <td className="px-6 py-4">{new Date(mov.created_at).toLocaleString('es-ES')}</td>
                                         <td className="px-6 py-4 font-medium text-gray-900">
                                             <div className="font-bold">{mov.item.codigo}</div>
                                             <div className="text-xs text-gray-500">{mov.item.descripcion}</div>
                                         </td>
                                         <td className="px-6 py-4 text-center">
-                                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${badge.className}`}>
-                                                {badge.text}
+                                            <span className={`px-2 py-1 text-xs font-medium rounded-full ${badge?.className || ''}`}>
+                                                {badge?.text || mov.tipo}
                                             </span>
                                         </td>
                                         <td className={`px-6 py-4 text-center font-bold ${amountDisplay.className}`}>
                                             {amountDisplay.text}
                                         </td>
+                                        <td className="px-6 py-4 text-center font-medium">{mov.stock_nuevo}</td>
                                         <td className="px-6 py-4">{usersMap.get(mov.usuario_id) || 'Desconocido'}</td>
-                                        <td className="px-6 py-4 text-gray-600 italic">{mov.observacion}</td>
+                                        <td className="px-6 py-4 text-gray-600 italic">{mov.observaciones}</td>
                                     </tr>
                                 );
                             })

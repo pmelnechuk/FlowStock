@@ -29,26 +29,26 @@ const Sidebar: React.FC = () => {
           Dashboard
         </NavLink>
         
-        {(user?.rol === Role.ADMIN) && (
+        {(user?.role === Role.ADMIN || user?.role === Role.SUPERVISOR) && (
           <NavLink to="/productos" className={navLinkClasses}>
             <ProductsIcon className="h-5 w-5 mr-3" />
             Productos
           </NavLink>
         )}
         
-        <NavLink to="/recetas" className={navLinkClasses}>
-            <RecipeBookIcon className="h-5 w-5 mr-3" />
-            Recetas
-        </NavLink>
+         {(user?.role === Role.ADMIN || user?.role === Role.SUPERVISOR) && (
+            <NavLink to="/recetas" className={navLinkClasses}>
+                <RecipeBookIcon className="h-5 w-5 mr-3" />
+                Recetas
+            </NavLink>
+         )}
 
-        {(user?.rol === Role.ADMIN || user?.rol === Role.OPERARIO) && (
-          <NavLink to="/movimientos" className={navLinkClasses}>
+        <NavLink to="/movimientos" className={navLinkClasses}>
             <MovementsIcon className="h-5 w-5 mr-3" />
             Movimientos
-          </NavLink>
-        )}
+        </NavLink>
 
-        {user?.rol === Role.ADMIN && (
+        {user?.role === Role.ADMIN && (
           <NavLink to="/usuarios" className={navLinkClasses}>
             <UsersIcon className="h-5 w-5 mr-3" />
             Usuarios

@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useState, useEffect, useMemo } from 'react';
 
 type Theme = 'light' | 'dark';
@@ -12,9 +13,9 @@ export const ThemeContext = createContext<ThemeContextType | undefined>(undefine
 
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [theme, setTheme] = useState<Theme>(() => {
+    // El tema ya no se guarda en localStorage. Siempre se basa en la preferencia del sistema al cargar.
     if (typeof window !== 'undefined') {
-      const savedTheme = localStorage.getItem('theme') as Theme;
-      return savedTheme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     }
     return 'light';
   });
@@ -25,7 +26,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('theme', theme);
+    // Se elimina la línea que guardaba el tema en localStorage.
   }, [theme]);
 
   const toggleTheme = () => {

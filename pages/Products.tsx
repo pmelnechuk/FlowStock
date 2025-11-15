@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabaseService } from '../services/supabaseService';
 import { Item, ItemType } from '../types';
+import { useAuth } from '../hooks/useAuth';
 
 const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<Item>) => void; onCancel: () => void }> = ({ item, onSave, onCancel }) => {
     const [formData, setFormData] = useState<Partial<Item>>(() => {
-        // For new items, provide default values.
-        // For existing items, passed 'item' properties will override these.
         const defaults: Partial<Item> = {
-            unidad: 'un',
+            unidad_medida: 'un',
         };
         return { ...defaults, ...(item || {}) };
     });
@@ -15,8 +14,7 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        if (name === 'stock_minimo' || name === 'valor') {
-            // For number inputs, allow empty string to be displayed by storing undefined in state.
+        if (name === 'stock_minimo' || name === 'valor_unitario') {
             setFormData(prev => ({ ...prev, [name]: value === '' ? undefined : Number(value) }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
@@ -25,8 +23,7 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        // Client-side validation to ensure all required fields are filled before submitting.
-        if (!formData.codigo || !formData.descripcion || !formData.tipo || !formData.unidad || formData.stock_minimo == null || formData.valor == null) {
+        if (!formData.codigo || !formData.descripcion || !formData.tipo || !formData.unidad_medida || formData.stock_minimo == null || formData.valor_unitario == null) {
             alert("Por favor, complete todos los campos obligatorios.");
             return;
         }
@@ -58,18 +55,18 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
                             </select>
                         </div>
                         <div>
-                            <label htmlFor="unidad" className="block text-sm font-medium">Unidad</label>
-                            <input type="text" name="unidad" id="unidad" value={formData.unidad || ''} onChange={handleChange} required className={inputStyle} />
+                            <label htmlFor="unidad_medida" className="block text-sm font-medium">Unidad</label>
+                            <input type="text" name="unidad_medida" id="unidad_medida" value={formData.unidad_medida || ''} onChange={handleChange} required className={inputStyle} />
                         </div>
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label htmlFor="stock_minimo" className="block text-sm font-medium">Stock Mínimo</label>
-                            <input type="number" name="stock_minimo" id="stock_minimo" value={formData.stock_minimo ?? ''} onChange={handleChange} min="0" step="0.0001" required className={inputStyle} />
+                            <input type="number" name="stock_minimo" id="stock_minimo" value={formData.stock_minimo ?? ''} onChange={handleChange} min="0" step="0.001" required className={inputStyle} />
                         </div>
                         <div>
-                            <label htmlFor="valor" className="block text-sm font-medium">Valor Unitario</label>
-                            <input type="number" name="valor" id="valor" value={formData.valor ?? ''} onChange={handleChange} min="0" step="0.01" required className={inputStyle} />
+                            <label htmlFor="valor_unitario" className="block text-sm font-medium">Valor Unitario</label>
+                            <input type="number" name="valor_unitario" id="valor_unitario" value={formData.valor_unitario ?? ''} onChange={handleChange} min="0" step="0.01" required className={inputStyle} />
                         </div>
                     </div>
                     <div className="flex justify-end space-x-2 pt-4">
@@ -83,6 +80,7 @@ const ItemForm: React.FC<{ item: Partial<Item> | null; onSave: (item: Partial<It
 };
 
 const Products: React.FC = () => {
+    const { user } = useAuth();
     const [items, setItems] = useState<Item[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingItem, setEditingItem] = useState<Partial<Item> | null>(null);
@@ -108,23 +106,42 @@ const Products: React.FC = () => {
     }, [fetchItems]);
     
     const handleSave = async (item: Partial<Item>) => {
-        const result = item.id
-            ? await supabaseService.data.updateItem(item as Item)
-            : await supabaseService.data.addItem(item as Omit<Item, 'id' | 'stock_actual'>);
+        if (!user) {
+            alert("Debe iniciar sesión para guardar un producto.");
+            return;
+        }
+
+        const isNew = !item.id;
+
+        const result = isNew
+            ? await supabaseService.data.addItem(item as Omit<Item, 'id' | 'stock_actual'>, user.id)
+            : await supabaseService.data.updateItem(item as Item);
 
         if (result.error) {
             console.error("Error al guardar el producto:", result.error);
             alert(`No se pudo guardar el producto: ${result.error.message}`);
         } else {
+             // HACK: If a new PT was created, immediately delete any recipe that might have been auto-created by a backend trigger.
+            // This enforces the user's requirement to create recipes manually.
+            if (isNew && item.tipo === ItemType.PT && result.data && Array.isArray(result.data) && result.data.length > 0) {
+                const newPTId = result.data[0].id;
+                // This is a "fire and forget" cleanup. If it fails, the user will see the auto-created recipe, which is the current undesirable behavior.
+                supabaseService.data.deleteRecipe(newPTId);
+            }
+            
             setEditingItem(null);
             fetchItems();
         }
     };
 
-    const handleDelete = async (id: number) => {
+    const handleDelete = async (id: string) => {
         if (window.confirm('¿Está seguro de que desea eliminar este producto?')) {
-            await supabaseService.data.deleteItem(id);
-            fetchItems();
+            const { error } = await supabaseService.data.deleteItem(id);
+            if (error) {
+                alert(`No se pudo eliminar el producto: ${error.message}`);
+            } else {
+                fetchItems();
+            }
         }
     };
     
@@ -150,10 +167,10 @@ const Products: React.FC = () => {
             if (filters.tipo && item.tipo !== filters.tipo) return false;
             
             const valorMin = parseFloat(filters.valorMin);
-            if (!isNaN(valorMin) && (item.valor ?? 0) < valorMin) return false;
+            if (!isNaN(valorMin) && (item.valor_unitario ?? 0) < valorMin) return false;
             
             const valorMax = parseFloat(filters.valorMax);
-            if (!isNaN(valorMax) && (item.valor ?? 0) > valorMax) return false;
+            if (!isNaN(valorMax) && (item.valor_unitario ?? 0) > valorMax) return false;
             
             const stockMin = parseInt(filters.stockMin, 10);
             if (!isNaN(stockMin) && item.stock_actual < stockMin) return false;
@@ -263,7 +280,7 @@ const Products: React.FC = () => {
                                     <td className="px-6 py-4">{item.descripcion}</td>
                                     <td className={`px-6 py-4 text-center font-bold ${item.stock_actual < item.stock_minimo ? 'text-red-600' : ''}`}>{item.stock_actual}</td>
                                     <td className="px-6 py-4 text-center">{item.stock_minimo}</td>
-                                    <td className="px-6 py-4 text-right font-mono">${(item.valor || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                    <td className="px-6 py-4 text-right font-mono">${(item.valor_unitario || 0).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                     <td className="px-6 py-4 space-x-2">
                                         <button onClick={() => setEditingItem(item)} className="font-medium text-primary-600 hover:underline">Editar</button>
                                         <button onClick={() => handleDelete(item.id)} className="font-medium text-red-600 hover:underline">Eliminar</button>

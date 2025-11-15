@@ -1,5 +1,5 @@
 import React, { createContext, useState, useEffect, useMemo, useCallback } from 'react';
-import { User } from '../types';
+import { User, Role, UserStatus } from '../types';
 import { supabase } from '../lib/supabaseClient';
 
 interface AuthContextType {
@@ -15,45 +15,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // This listener handles session restoration on page load and background changes.
   useEffect(() => {
     setLoading(true);
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
-        try {
-          if (session?.user?.id) {
-            const { data: profile, error } = await supabase
-              .from('usuarios')
-              .select('*')
-              .eq('id', session.user.id)
-              .single();
+        if (!session?.user) {
+          setUser(null);
+          setLoading(false);
+          return;
+        }
 
-            // Happy path: Profile found and active
-            if (profile && profile.activo) {
-              setUser({ ...profile, email: session.user.email as string });
-            } 
-            // Edge case: Profile found but inactive. Log them out.
-            else if (profile && !profile.activo) {
-              await supabase.auth.signOut();
-              setUser(null);
-            }
-            // Error case: Profile not found or other DB error.
-            // We sign out here to clear the corrupt session from storage,
-            // preventing the app from getting stuck on a reload loop.
-            else {
-              if (error && error.code !== 'PGRST116') {
-                 console.error("Error fetching user profile, signing out to clear session:", error);
-              }
-              await supabase.auth.signOut(); // Force sign out
-              setUser(null);
-            }
+        try {
+          const { data: profile, error } = await supabase
+            .from('usuarios')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+
+          if (error) {
+            console.error("Error fetching user profile:", error);
+            setUser(null);
+            // The profile is now created by a DB trigger, so we don't need to handle its absence here.
+            // If there's an error, it's likely a network issue or RLS misconfiguration.
+          } else if (profile && profile.status === UserStatus.ACTIVO) {
+            setUser(profile as User);
           } else {
+            // Profile exists but is not active, or another error occurred.
             setUser(null);
           }
         } catch (e) {
-          console.error("Critical error in onAuthStateChange, signing out:", e);
-          await supabase.auth.signOut(); // Force sign out on critical error
-          setUser(null);
+          console.error("Critical error while fetching profile:", e);
+          setUser(null); 
         } finally {
           setLoading(false);
         }
@@ -65,9 +57,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
-  // This function handles the user-initiated sign-in action.
-  // It provides immediate feedback to the login form by awaiting the full process.
-  const signIn = useCallback(async (email: string, contrasena: string) => {
+  const signIn = useCallback(async (email: string, contrasena:string) => {
     const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
         email: email,
         password: contrasena,
@@ -84,27 +74,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         .single();
 
     if (profileError || !profile) {
-        await supabase.auth.signOut(); // Clean up the partial session
+        await supabase.auth.signOut();
         console.error('Profile fetch failed after login:', profileError);
         return { error: 'No se pudo verificar el perfil. Contacte a un administrador.' };
     }
 
-    if (!profile.activo) {
-        await supabase.auth.signOut(); // Clean up the session
+    if (profile.status !== UserStatus.ACTIVO) {
+        await supabase.auth.signOut();
         return { error: 'Su cuenta no está activa. Contacte a un administrador.' };
     }
 
-    // Success: set user state and return no error
-    const fullUser: User = { ...profile, email: authData.user.email as string };
-    setUser(fullUser);
+    setUser(profile as User);
     return { error: null };
   }, []);
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
-    // The onAuthStateChange listener will also set user to null,
-    // but setting it here provides a faster UI update.
-    setUser(null);
+    window.location.reload();
   }, []);
 
   const value = useMemo(() => ({ user, loading, signIn, signOut }), [user, loading, signIn, signOut]);

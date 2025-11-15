@@ -57,6 +57,18 @@
 </head>
   <body class="bg-gray-50">
     <div id="root"></div>
-    <script type="module" src="index.tsx"></script>
+    <script type="module">
+      // Dynamically create and append the script tag.
+      // This version manually constructs an absolute URL via string manipulation
+      // to avoid the `new URL()` constructor which failed in this environment.
+      // This is a robust solution against CORS errors caused by path resolution issues.
+      (function() {
+        const script = document.createElement('script');
+        script.type = 'module';
+        const baseUrl = window.location.href.substring(0, window.location.href.lastIndexOf('/') + 1);
+        script.src = baseUrl + 'index.tsx';
+        document.body.appendChild(script);
+      })();
+    </script>
   </body>
 </html>
